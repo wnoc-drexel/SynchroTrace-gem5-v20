@@ -564,12 +564,12 @@ void
 StTracePthreadMetadata::parseBarrierEvent(std::string& line)
 {
     // example:
-    // **67117104,1,2,3,4,5,6,7,8,
+    // **67117104,1,2,3,4,5,6,7,8
 
     uint64_t pthAddr, threadId;
     auto s = scn::make_stream(line);
-    auto res = scn::scan(s, "**{:d},", pthAddr);
+    auto res = scn::scan(s, "**{:d}", pthAddr);
     fatal_if(!res, "error parsing barrier from file");
-    while (scn::scan(s, "{:d},", threadId))
+    while (scn::scan(s, ",{:d}", threadId))
         m_barrierMap[pthAddr].insert(threadId - 1);
 }

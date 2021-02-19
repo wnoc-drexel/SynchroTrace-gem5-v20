@@ -79,7 +79,7 @@
 # [4] https://vandal-prism.readthedocs.io/en/docs/
 #
 
-from MemObject import MemObject
+from m5.objects.MemObject import MemObject
 from m5.params import *
 from m5.proxy import *
 import optparse

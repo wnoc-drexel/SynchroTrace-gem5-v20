@@ -552,6 +552,6 @@ class SynchroTraceReplayer : public MemObject
     /** Waking up cores. */
     std::vector<SynchroTraceCoreEvent> coreEvents;
 
-    MasterID masterID;
+    RequestorID masterID;
 };
 #endif // __CPU_TESTERS_SYNCHROTRACE_SYNCHROTRACE_HH
