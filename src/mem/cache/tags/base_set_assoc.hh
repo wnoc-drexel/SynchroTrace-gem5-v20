@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
  */
 
 /**
@@ -131,13 +129,13 @@ class BaseSetAssoc : public BaseTags
         // Access all tags in parallel, hence one in each way.  The data side
         // either accesses all blocks in parallel, or one block sequentially on
         // a hit.  Sequential access with a miss doesn't access data.
-        tagAccesses += allocAssoc;
+        stats.tagAccesses += allocAssoc;
         if (sequentialAccess) {
             if (blk != nullptr) {
-                dataAccesses += 1;
+                stats.dataAccesses += 1;
             }
         } else {
-            dataAccesses += allocAssoc;
+            stats.dataAccesses += allocAssoc;
         }
 
         // If a cache hit
@@ -167,7 +165,7 @@ class BaseSetAssoc : public BaseTags
      */
     CacheBlk* findVictim(Addr addr, const bool is_secure,
                          const std::size_t size,
-                         std::vector<CacheBlk*>& evict_blks) const override
+                         std::vector<CacheBlk*>& evict_blks) override
     {
         // Get possible entries to be victimized
         const std::vector<ReplaceableEntry*> entries =
@@ -195,7 +193,7 @@ class BaseSetAssoc : public BaseTags
         BaseTags::insertBlock(pkt, blk);
 
         // Increment tag counter
-        tagsInUse++;
+        stats.tagsInUse++;
 
         // Update replacement policy
         replacementPolicy->reset(blk->replacementData);

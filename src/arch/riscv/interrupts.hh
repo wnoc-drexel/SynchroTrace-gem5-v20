@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_RISCV_INTERRUPT_HH__
@@ -34,6 +32,7 @@
 #include <bitset>
 #include <memory>
 
+#include "arch/generic/interrupts.hh"
 #include "arch/riscv/faults.hh"
 #include "arch/riscv/registers.hh"
 #include "base/logging.hh"
@@ -51,10 +50,9 @@ namespace RiscvISA {
  * This is based on version 1.10 of the RISC-V privileged ISA reference,
  * chapter 3.1.14.
  */
-class Interrupts : public SimObject
+class Interrupts : public BaseInterrupts
 {
   private:
-    BaseCPU * cpu;
     std::bitset<NumInterruptTypes> ip;
     std::bitset<NumInterruptTypes> ie;
 
@@ -67,12 +65,10 @@ class Interrupts : public SimObject
         return dynamic_cast<const Params *>(_params);
     }
 
-    Interrupts(Params * p) : SimObject(p), cpu(nullptr), ip(0), ie(0) {}
-
-    void setCPU(BaseCPU * _cpu) { cpu = _cpu; }
+    Interrupts(Params * p) : BaseInterrupts(p), ip(0), ie(0) {}
 
     std::bitset<NumInterruptTypes>
-    globalMask(ThreadContext *tc) const
+    globalMask() const
     {
         INTERRUPT mask = 0;
         STATUS status = tc->readMiscReg(MISCREG_STATUS);
@@ -86,23 +82,23 @@ class Interrupts : public SimObject
     }
 
     bool checkInterrupt(int num) const { return ip[num] && ie[num]; }
-    bool checkInterrupts(ThreadContext *tc) const
+    bool checkInterrupts() const
     {
-        return (ip & ie & globalMask(tc)).any();
+        return (ip & ie & globalMask()).any();
     }
 
     Fault
-    getInterrupt(ThreadContext *tc) const
+    getInterrupt()
     {
-        assert(checkInterrupts(tc));
-        std::bitset<NumInterruptTypes> mask = globalMask(tc);
+        assert(checkInterrupts());
+        std::bitset<NumInterruptTypes> mask = globalMask();
         for (int c = 0; c < NumInterruptTypes; c++)
             if (checkInterrupt(c) && mask[c])
                 return std::make_shared<InterruptFault>(c);
         return NoFault;
     }
 
-    void updateIntrInfo(ThreadContext *tc) {}
+    void updateIntrInfo() {}
 
     void
     post(int int_num, int index)
@@ -133,18 +129,21 @@ class Interrupts : public SimObject
     void
     serialize(CheckpointOut &cp) const
     {
-        SERIALIZE_SCALAR(ip.to_ulong());
-        SERIALIZE_SCALAR(ie.to_ulong());
+        unsigned long ip_ulong = ip.to_ulong();
+        unsigned long ie_ulong = ie.to_ulong();
+        SERIALIZE_SCALAR(ip_ulong);
+        SERIALIZE_SCALAR(ie_ulong);
     }
 
     void
     unserialize(CheckpointIn &cp)
     {
-        long reg;
-        UNSERIALIZE_SCALAR(reg);
-        ip = reg;
-        UNSERIALIZE_SCALAR(reg);
-        ie = reg;
+        unsigned long ip_ulong;
+        unsigned long ie_ulong;
+        UNSERIALIZE_SCALAR(ip_ulong);
+        ip = ip_ulong;
+        UNSERIALIZE_SCALAR(ie_ulong);
+        ie = ie_ulong;
     }
 };
 

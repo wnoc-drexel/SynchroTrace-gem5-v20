@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #ifndef __DEV_ARM_SMMU_V3_CACHES_HH__
@@ -130,6 +128,8 @@ class SMMUTLB : public SMMUv3BaseCache
                              bool updStats=true);
     void store(const Entry &incoming, AllocPolicy alloc);
 
+    void invalidateSSID(uint32_t sid, uint32_t ssid);
+    void invalidateSID(uint32_t sid);
     void invalidateVA(Addr va, uint16_t asid, uint16_t vmid);
     void invalidateVAA(Addr va, uint16_t vmid);
     void invalidateASID(uint16_t asid, uint16_t vmid);
@@ -142,6 +142,7 @@ class SMMUTLB : public SMMUv3BaseCache
 
     size_t associativity;
 
+    size_t pickSetIdx(uint32_t sid, uint32_t ssid) const;
     size_t pickSetIdx(Addr va) const;
     size_t pickEntryIdxToReplace(const Set &set, AllocPolicy alloc);
 };
@@ -252,6 +253,8 @@ class ConfigCache : public SMMUv3BaseCache
         uint16_t vmid;
         uint8_t stage1_tg;
         uint8_t stage2_tg;
+        uint8_t t0sz;
+        uint8_t s2t0sz;
     };
 
     ConfigCache(unsigned numEntries, unsigned _associativity,
@@ -305,8 +308,9 @@ class WalkCache : public SMMUv3BaseCache
                         unsigned stage, unsigned level, bool updStats=true);
     void store(const Entry &incoming);
 
-    void invalidateVA(Addr va, uint16_t asid, uint16_t vmid);
-    void invalidateVAA(Addr va, uint16_t vmid);
+    void invalidateVA(Addr va, uint16_t asid, uint16_t vmid,
+                      const bool leaf_only);
+    void invalidateVAA(Addr va, uint16_t vmid, const bool leaf_only);
     void invalidateASID(uint16_t asid, uint16_t vmid);
     void invalidateVMID(uint16_t vmid);
     void invalidateAll();

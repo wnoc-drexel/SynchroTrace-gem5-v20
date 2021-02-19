@@ -36,14 +36,11 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
 
 from __future__ import with_statement, print_function
 import os
 import sys
 import re
-import string
 import inspect, traceback
 # get type names
 from types import *
@@ -149,7 +146,7 @@ class Template(object):
 
             myDict.update(snippets)
 
-            compositeCode = ' '.join(map(str, snippets.values()))
+            compositeCode = ' '.join(list(map(str, snippets.values())))
 
             # Add in template itself in case it references any
             # operands explicitly (like Mem)
@@ -213,7 +210,7 @@ class Template(object):
             # if the argument is an object, we use its attribute map.
             myDict.update(d.__dict__)
         else:
-            raise TypeError, "Template.subst() arg must be or have dictionary"
+            raise TypeError("Template.subst() arg must be or have dictionary")
         return template % myDict
 
     # Convert to string.
@@ -233,13 +230,13 @@ class Format(object):
         self.params = params
         label = 'def format ' + id
         self.user_code = compile(fixPythonIndentation(code), label, 'exec')
-        param_list = string.join(params, ", ")
+        param_list = ", ".join(params)
         f = '''def defInst(_code, _context, %s):
                 my_locals = vars().copy()
-                exec _code in _context, my_locals
+                exec(_code, _context, my_locals)
                 return my_locals\n''' % param_list
         c = compile(f, label + ' wrapper', 'exec')
-        exec c
+        exec(c, globals())
         self.func = defInst
 
     def defineInst(self, parser, name, args, lineno):
@@ -252,11 +249,11 @@ class Format(object):
         context.update({ 'name' : name, 'Name' : Name })
         try:
             vars = self.func(self.user_code, context, *args[0], **args[1])
-        except Exception, exc:
+        except Exception as exc:
             if debug:
                 raise
             error(lineno, 'error defining "%s": %s.' % (name, exc))
-        for k in vars.keys():
+        for k in list(vars.keys()):
             if k not in ('header_output', 'decoder_output',
                          'exec_output', 'decode_block'):
                 del vars[k]
@@ -1292,12 +1289,12 @@ class OperandList(object):
         return self.__internalConcatAttrs(attr_name, filter, [])
 
     def sort(self):
-        self.items.sort(lambda a, b: a.sort_pri - b.sort_pri)
+        self.items.sort(key=lambda a: a.sort_pri)
 
 class SubOperandList(OperandList):
     '''Find all the operands in the given code block.  Returns an operand
     descriptor list (instance of class OperandList).'''
-    def __init__(self, parser, code, master_list):
+    def __init__(self, parser, code, requestor_list):
         self.items = []
         self.bases = {}
         # delete strings and comments so we don't match on operands inside
@@ -1318,17 +1315,17 @@ class SubOperandList(OperandList):
             if op_base in parser.elemToVector:
                 elem_op = op_base
                 op_base = parser.elemToVector[elem_op]
-            # find this op in the master list
-            op_desc = master_list.find_base(op_base)
+            # find this op in the requestor list
+            op_desc = requestor_list.find_base(op_base)
             if not op_desc:
-                error('Found operand %s which is not in the master list!'
+                error('Found operand %s which is not in the requestor list!'
                       % op_base)
             else:
                 # See if we've already found this operand
                 op_desc = self.find_base(op_base)
                 if not op_desc:
                     # if not, add a reference to it to this sub list
-                    self.append(master_list.bases[op_base])
+                    self.append(requestor_list.bases[op_base])
 
             # start next search after end of current match
             next_pos = match.end()
@@ -1401,7 +1398,7 @@ def makeFlagConstructor(flag_list):
             i += 1
     pre = '\n\tflags['
     post = '] = true;'
-    code = pre + string.join(flag_list, post + pre) + post
+    code = pre + (post + pre).join(flag_list) + post
     return code
 
 # Assume all instruction flags are of the form 'IsFoo'
@@ -1418,7 +1415,7 @@ class InstObjParams(object):
         self.base_class = base_class
         if not isinstance(snippets, dict):
             snippets = {'code' : snippets}
-        compositeCode = ' '.join(map(str, snippets.values()))
+        compositeCode = ' '.join(list(map(str, snippets.values())))
         self.snippets = snippets
 
         self.operands = OperandList(parser, compositeCode)
@@ -1586,7 +1583,7 @@ class ISAParser(Grammar):
         # file where it was included.
         self.fileNameStack = Stack()
 
-        symbols = ('makeList', 're', 'string')
+        symbols = ('makeList', 're')
         self.exportContext = dict([(s, eval(s)) for s in symbols])
 
         self.maxInstSrcRegs = 0
@@ -1919,10 +1916,10 @@ class ISAParser(Grammar):
     def p_specification(self, t):
         'specification : opt_defs_and_outputs top_level_decode_block'
 
-        for f in self.splits.iterkeys():
+        for f in self.splits.keys():
             f.write('\n#endif\n')
 
-        for f in self.files.itervalues(): # close ALL the files;
+        for f in self.files.values(): # close ALL the files;
             f.close() # not doing so can cause compilation to fail
 
         self.write_top_level_files()
@@ -2009,20 +2006,23 @@ class ISAParser(Grammar):
         kwargs = { t[2]+'_output' : self.process_output(t[3]) }
         GenCode(self, **kwargs).emit()
 
+    def make_split(self):
+        def _split(sec):
+            return self.split(sec)
+        return _split
+
     # global let blocks 'let {{...}}' (Python code blocks) are
     # executed directly when seen.  Note that these execute in a
     # special variable context 'exportContext' to prevent the code
     # from polluting this script's namespace.
     def p_global_let(self, t):
         'global_let : LET CODELIT SEMI'
-        def _split(sec):
-            return self.split(sec)
         self.updateExportContext()
         self.exportContext["header_output"] = ''
         self.exportContext["decoder_output"] = ''
         self.exportContext["exec_output"] = ''
         self.exportContext["decode_block"] = ''
-        self.exportContext["split"] = _split
+        self.exportContext["split"] = self.make_split()
         split_setup = '''
 def wrap(func):
     def split(sec):
@@ -2039,8 +2039,8 @@ del wrap
         # next split's #define from the parser and add it to the current
         # emission-in-progress.
         try:
-            exec split_setup+fixPythonIndentation(t[2]) in self.exportContext
-        except Exception, exc:
+            exec(split_setup+fixPythonIndentation(t[2]), self.exportContext)
+        except Exception as exc:
             traceback.print_exc(file=sys.stdout)
             if debug:
                 raise
@@ -2057,7 +2057,7 @@ del wrap
         'def_operand_types : DEF OPERAND_TYPES CODELIT SEMI'
         try:
             self.operandTypeMap = eval('{' + t[3] + '}')
-        except Exception, exc:
+        except Exception as exc:
             if debug:
                 raise
             error(t.lineno(1),
@@ -2072,7 +2072,7 @@ del wrap
                   'error: operand types must be defined before operands')
         try:
             user_dict = eval('{' + t[3] + '}', self.exportContext)
-        except Exception, exc:
+        except Exception as exc:
             if debug:
                 raise
             error(t.lineno(1), 'In def operands: %s' % exc)
@@ -2371,7 +2371,7 @@ StaticInstPtr
         # Pass the ID and arg list to the current format class to deal with.
         currentFormat = self.formatStack.top()
         codeObj = currentFormat.defineInst(self, t[1], t[3], t.lexer.lineno)
-        args = ','.join(map(str, t[3]))
+        args = ','.join(list(map(str, t[3])))
         args = re.sub('(?m)^', '//', args)
         args = re.sub('^//', '', args)
         comment = '\n// %s::%s(%s)\n' % (currentFormat.id, t[1], args)
@@ -2510,7 +2510,7 @@ StaticInstPtr
 
     def buildOperandNameMap(self, user_dict, lineno):
         operand_name = {}
-        for op_name, val in user_dict.iteritems():
+        for op_name, val in user_dict.items():
 
             # Check if extra attributes have been specified.
             if len(val) > 9:
@@ -2583,7 +2583,7 @@ StaticInstPtr
         self.operandNameMap = operand_name
 
         # Define operand variables.
-        operands = user_dict.keys()
+        operands = list(user_dict.keys())
         # Add the elems defined in the vector operands and
         # build a map elem -> vector (used in OperandList)
         elem_to_vec = {}
@@ -2599,7 +2599,7 @@ StaticInstPtr
         (?<!\w)      # neg. lookbehind assertion: prevent partial matches
         ((%s)(?:_(%s))?)   # match: operand with optional '_' then suffix
         (?!\w)       # neg. lookahead assertion: prevent partial matches
-        ''' % (string.join(operands, '|'), string.join(extensions, '|'))
+        ''' % ('|'.join(operands), '|'.join(extensions))
 
         self.operandsRE = re.compile(operandsREString, re.MULTILINE|re.VERBOSE)
 
@@ -2607,7 +2607,7 @@ StaticInstPtr
         # groups are returned (base and ext, not full name as above).
         # Used for subtituting '_' for '.' to make C++ identifiers.
         operandsWithExtREString = r'(?<!\w)(%s)_(%s)(?!\w)' \
-            % (string.join(operands, '|'), string.join(extensions, '|'))
+            % ('|'.join(operands), '|'.join(extensions))
 
         self.operandsWithExtRE = \
             re.compile(operandsWithExtREString, re.MULTILINE)
@@ -2712,7 +2712,7 @@ StaticInstPtr
     def parse_isa_desc(self, *args, **kwargs):
         try:
             self._parse_isa_desc(*args, **kwargs)
-        except ISAParserError, e:
+        except ISAParserError as e:
             print(backtrace(self.fileNameStack))
             print("At %s:" % e.lineno)
             print(e)

@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_TLM_PORT_WRAPPER_HH__
@@ -37,31 +35,27 @@
 namespace sc_gem5
 {
 
-template <unsigned int BUSWIDTH=32,
-          typename TYPES=tlm::tlm_base_protocol_types, int N=1,
-          sc_core::sc_port_policy POL=sc_core::SC_ONE_OR_MORE_BOUND>
-class TlmInitiatorWrapper;
-
-template <unsigned int BUSWIDTH=32,
-          typename TYPES=tlm::tlm_base_protocol_types, int N=1,
-          sc_core::sc_port_policy POL=sc_core::SC_ONE_OR_MORE_BOUND>
-class TlmTargetWrapper;
-
-template <unsigned int BUSWIDTH, typename TYPES, int N,
+template <unsigned int BUSWIDTH, typename FW_IF, typename BW_IF, int N,
           sc_core::sc_port_policy POL>
-class TlmInitiatorWrapper : public ::Port
+class TlmInitiatorBaseWrapper;
+
+template <unsigned int BUSWIDTH, typename FW_IF, typename BW_IF, int N,
+          sc_core::sc_port_policy POL>
+class TlmTargetBaseWrapper;
+
+template <unsigned int BUSWIDTH, typename FW_IF, typename BW_IF, int N,
+          sc_core::sc_port_policy POL>
+class TlmInitiatorBaseWrapper : public ::Port
 {
   public:
-    typedef tlm::tlm_base_initiator_socket<BUSWIDTH,
-            tlm::tlm_fw_transport_if<TYPES>,
-            tlm::tlm_bw_transport_if<TYPES>, N, POL>
+    typedef tlm::tlm_base_initiator_socket<BUSWIDTH, FW_IF, BW_IF, N, POL>
         InitiatorSocket;
     typedef typename InitiatorSocket::base_target_socket_type TargetSocket;
-    typedef TlmTargetWrapper<BUSWIDTH, TYPES, N, POL> TargetWrapper;
+    typedef TlmTargetBaseWrapper<BUSWIDTH, FW_IF, BW_IF, N, POL> TargetWrapper;
 
     InitiatorSocket &initiator() { return _initiator; }
 
-    TlmInitiatorWrapper(
+    TlmInitiatorBaseWrapper(
             InitiatorSocket &i, const std::string &_name, PortID _id) :
         Port(_name, _id), _initiator(i)
     {}
@@ -74,6 +68,7 @@ class TlmInitiatorWrapper : public ::Port
                 "incompatible port %s.", name(), peer.name());
 
         initiator().bind(target->target());
+        Port::bind(peer);
     }
 
     void
@@ -86,19 +81,18 @@ class TlmInitiatorWrapper : public ::Port
     InitiatorSocket &_initiator;
 };
 
-template <unsigned int BUSWIDTH, typename TYPES, int N,
+template <unsigned int BUSWIDTH, typename FW_IF, typename BW_IF, int N,
           sc_core::sc_port_policy POL>
-class TlmTargetWrapper : public ::Port
+class TlmTargetBaseWrapper : public ::Port
 {
   public:
-    typedef tlm::tlm_base_target_socket<BUSWIDTH,
-            tlm::tlm_fw_transport_if<TYPES>,
-            tlm::tlm_bw_transport_if<TYPES>, N, POL>
+    typedef tlm::tlm_base_target_socket<BUSWIDTH, FW_IF, BW_IF, N, POL>
         TargetSocket;
 
     TargetSocket &target() { return _target; }
 
-    TlmTargetWrapper(TargetSocket &t, const std::string &_name, PortID _id) :
+    TlmTargetBaseWrapper(TargetSocket &t, const std::string &_name,
+                         PortID _id) :
         Port(_name, _id), _target(t)
     {}
 
@@ -107,6 +101,7 @@ class TlmTargetWrapper : public ::Port
     {
         // Ignore attempts to bind a target socket. The initiator will
         // handle it.
+        Port::bind(peer);
     }
 
     void
@@ -118,6 +113,20 @@ class TlmTargetWrapper : public ::Port
   private:
     TargetSocket &_target;
 };
+
+template <unsigned int BUSWIDTH=32,
+          typename TYPES=tlm::tlm_base_protocol_types, int N=1,
+          sc_core::sc_port_policy POL=sc_core::SC_ONE_OR_MORE_BOUND>
+using TlmInitiatorWrapper =
+    TlmInitiatorBaseWrapper<BUSWIDTH, tlm::tlm_fw_transport_if<TYPES>,
+                            tlm::tlm_bw_transport_if<TYPES>, N, POL>;
+
+template <unsigned int BUSWIDTH=32,
+          typename TYPES=tlm::tlm_base_protocol_types, int N=1,
+          sc_core::sc_port_policy POL=sc_core::SC_ONE_OR_MORE_BOUND>
+using TlmTargetWrapper =
+    TlmTargetBaseWrapper<BUSWIDTH, tlm::tlm_fw_transport_if<TYPES>,
+                         tlm::tlm_bw_transport_if<TYPES>, N, POL>;
 
 } // namespace sc_gem5
 

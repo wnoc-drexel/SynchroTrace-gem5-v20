@@ -24,10 +24,6 @@
  * ARISING OUT OF OR IN CONNECTION WITH THE USE OF THE SOFTWARE, EVEN
  * IF IT HAS BEEN OR IS HEREAFTER ADVISED OF THE POSSIBILITY OF SUCH
  * DAMAGES.
- *
- * Authors: Ali G. Saidi
- *          Andrew L. Schultz
- *          Miguel J. Serrano
  */
 
 #ifndef __DEV_8254_HH__
@@ -40,7 +36,7 @@
 #include "base/types.hh"
 #include "base/trace.hh"
 #include "debug/Intel8254Timer.hh"
-#include "sim/eventq_impl.hh"
+#include "sim/eventq.hh"
 #include "sim/serialize.hh"
 
 /** Programmable Interval Timer (Intel 8254) */

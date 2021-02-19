@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014, 2016-2018 ARM Limited
+ * Copyright (c) 2011-2014, 2016-2018, 2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,11 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Dave Greene
- *          Nathan Binkert
- *          Andrew Bardsley
  */
 
 /**
@@ -99,9 +94,6 @@ class ExecContext : public ::ExecContext
         setPredicate(inst->readPredicate());
         setMemAccPredicate(inst->readMemAccPredicate());
         thread.setIntReg(TheISA::ZeroReg, 0);
-#if THE_ISA == ALPHA_ISA
-        thread.setFloatReg(TheISA::ZeroReg, 0);
-#endif
     }
 
     ~ExecContext()
@@ -113,34 +105,39 @@ class ExecContext : public ::ExecContext
     Fault
     initiateMemRead(Addr addr, unsigned int size,
                     Request::Flags flags,
-                    const std::vector<bool>& byteEnable = std::vector<bool>())
-        override
+                    const std::vector<bool>& byte_enable =
+                        std::vector<bool>()) override
     {
-        execute.getLSQ().pushRequest(inst, true /* load */, nullptr,
-            size, addr, flags, nullptr, nullptr, byteEnable);
+        assert(byte_enable.empty() || byte_enable.size() == size);
+        return execute.getLSQ().pushRequest(inst, true /* load */, nullptr,
+            size, addr, flags, nullptr, nullptr, byte_enable);
+    }
+
+    Fault
+    initiateHtmCmd(Request::Flags flags) override
+    {
+        panic("ExecContext::initiateHtmCmd() not implemented on MinorCPU\n");
         return NoFault;
     }
 
     Fault
     writeMem(uint8_t *data, unsigned int size, Addr addr,
              Request::Flags flags, uint64_t *res,
-             const std::vector<bool>& byteEnable = std::vector<bool>())
+             const std::vector<bool>& byte_enable = std::vector<bool>())
         override
     {
-        assert(byteEnable.empty() || byteEnable.size() == size);
-        execute.getLSQ().pushRequest(inst, false /* store */, data,
-            size, addr, flags, res, nullptr, byteEnable);
-        return NoFault;
+        assert(byte_enable.empty() || byte_enable.size() == size);
+        return execute.getLSQ().pushRequest(inst, false /* store */, data,
+            size, addr, flags, res, nullptr, byte_enable);
     }
 
     Fault
     initiateMemAMO(Addr addr, unsigned int size, Request::Flags flags,
-                   AtomicOpFunctor *amo_op) override
+                   AtomicOpFunctorPtr amo_op) override
     {
         // AMO requests are pushed through the store path
-        execute.getLSQ().pushRequest(inst, false /* amo */, nullptr,
-            size, addr, flags, nullptr, amo_op);
-        return NoFault;
+        return execute.getLSQ().pushRequest(inst, false /* amo */, nullptr,
+            size, addr, flags, nullptr, std::move(amo_op));
     }
 
     RegVal
@@ -343,6 +340,39 @@ class ExecContext : public ::ExecContext
         thread.setMemAccPredicate(val);
     }
 
+    // hardware transactional memory
+    uint64_t
+    getHtmTransactionUid() const override
+    {
+        panic("ExecContext::getHtmTransactionUid() not"
+              "implemented on MinorCPU\n");
+        return 0;
+    }
+
+    uint64_t
+    newHtmTransactionUid() const override
+    {
+        panic("ExecContext::newHtmTransactionUid() not"
+              "implemented on MinorCPU\n");
+        return 0;
+    }
+
+    bool
+    inHtmTransactionalState() const override
+    {
+        // ExecContext::inHtmTransactionalState() not
+        // implemented on MinorCPU
+        return false;
+    }
+
+    uint64_t
+    getHtmTransactionalDepth() const override
+    {
+        panic("ExecContext::getHtmTransactionalDepth() not"
+              "implemented on MinorCPU\n");
+        return 0;
+    }
+
     TheISA::PCState
     pcState() const override
     {
@@ -389,16 +419,9 @@ class ExecContext : public ::ExecContext
         return thread.setMiscReg(reg.index(), val);
     }
 
-    void
-    syscall(int64_t callnum, Fault *fault) override
-    {
-        if (FullSystem)
-            panic("Syscall emulation isn't available in FS mode.\n");
+    void syscall() override { thread.syscall(); }
 
-        thread.syscall(callnum, fault);
-    }
-
-    ThreadContext *tcBase() override { return thread.getTC(); }
+    ThreadContext *tcBase() const override { return thread.getTC(); }
 
     /* @todo, should make stCondFailures persistent somewhere */
     unsigned int readStCondFailures() const override { return 0; }

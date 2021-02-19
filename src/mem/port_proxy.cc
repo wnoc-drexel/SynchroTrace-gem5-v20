@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
  */
 
 #include "mem/port_proxy.hh"
@@ -49,11 +47,11 @@ PortProxy::readBlobPhys(Addr addr, Request::Flags flags,
          gen.next()) {
 
         auto req = std::make_shared<Request>(
-            gen.addr(), gen.size(), flags, Request::funcMasterId);
+            gen.addr(), gen.size(), flags, Request::funcRequestorId);
 
         Packet pkt(req, MemCmd::ReadReq);
         pkt.dataStatic(static_cast<uint8_t *>(p));
-        _port.sendFunctional(&pkt);
+        sendFunctional(&pkt);
         p = static_cast<uint8_t *>(p) + gen.size();
     }
 }
@@ -66,11 +64,11 @@ PortProxy::writeBlobPhys(Addr addr, Request::Flags flags,
          gen.next()) {
 
         auto req = std::make_shared<Request>(
-            gen.addr(), gen.size(), flags, Request::funcMasterId);
+            gen.addr(), gen.size(), flags, Request::funcRequestorId);
 
         Packet pkt(req, MemCmd::WriteReq);
         pkt.dataStaticConst(static_cast<const uint8_t *>(p));
-        _port.sendFunctional(&pkt);
+        sendFunctional(&pkt);
         p = static_cast<const uint8_t *>(p) + gen.size();
     }
 }

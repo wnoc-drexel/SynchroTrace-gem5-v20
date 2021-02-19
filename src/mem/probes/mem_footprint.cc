@@ -34,8 +34,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Rahul Thakur
  */
 
 #include "mem/probes/mem_footprint.hh"
@@ -84,9 +82,7 @@ MemFootprintProbe::regStats()
         .flags(nozero | nonan);
     // clang-format on
 
-    registerResetCallback(
-        new MakeCallback<MemFootprintProbe, &MemFootprintProbe::statReset>(
-            this));
+    registerResetCallback([this]() { statReset(); });
 }
 
 void

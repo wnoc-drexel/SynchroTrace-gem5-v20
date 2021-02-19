@@ -29,9 +29,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vignyan Reddy, Dibakar Gope and Arthur Perais,
- * from André Seznec's code.
  */
 
 #ifndef __CPU_PRED_LOOP_PREDICTOR_HH__
@@ -86,9 +83,11 @@ class LoopPredictor : public SimObject
     const unsigned initialLoopAge;
     const bool optionalAgeReset;
 
-    // stats
-    Stats::Scalar loopPredictorCorrect;
-    Stats::Scalar loopPredictorWrong;
+    struct LoopPredictorStats : public Stats::Group {
+        LoopPredictorStats(Stats::Group *parent);
+        Stats::Scalar correct;
+        Stats::Scalar wrong;
+    } stats;
 
     /**
      * Updates an unsigned counter based on up/down parameter
@@ -253,11 +252,8 @@ class LoopPredictor : public SimObject
      */
     void init() override;
 
-    /**
-     * Register stats for this object
-     */
-    void regStats() override;
-
     LoopPredictor(LoopPredictorParams *p);
+
+    size_t getSizeInBits() const;
 };
 #endif//__CPU_PRED_LOOP_PREDICTOR_HH__

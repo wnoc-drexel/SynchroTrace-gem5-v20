@@ -24,15 +24,14 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jason Lowe-Power
  */
 
 #ifndef __LEARNING_GEM5_PART2_SIMPLE_MEMOBJ_HH__
 #define __LEARNING_GEM5_PART2_SIMPLE_MEMOBJ_HH__
 
-#include "mem/mem_object.hh"
+#include "mem/port.hh"
 #include "params/SimpleMemobj.hh"
+#include "sim/sim_object.hh"
 
 /**
  * A very simple memory object. Current implementation doesn't even cache
@@ -40,7 +39,7 @@
  * This memobj is fully blocking (not non-blocking). Only a single request can
  * be outstanding at a time.
  */
-class SimpleMemobj : public MemObject
+class SimpleMemobj : public SimObject
 {
   private:
 
@@ -49,7 +48,7 @@ class SimpleMemobj : public MemObject
      * Mostly just forwards requests to the owner.
      * Part of a vector of ports. One for each CPU port (e.g., data, inst)
      */
-    class CPUSidePort : public SlavePort
+    class CPUSidePort : public ResponsePort
     {
       private:
         /// The object that owns this object (SimpleMemobj)
@@ -66,7 +65,7 @@ class SimpleMemobj : public MemObject
          * Constructor. Just calls the superclass constructor.
          */
         CPUSidePort(const std::string& name, SimpleMemobj *owner) :
-            SlavePort(name, owner), owner(owner), needRetry(false),
+            ResponsePort(name, owner), owner(owner), needRetry(false),
             blockedPacket(nullptr)
         { }
 
@@ -80,7 +79,7 @@ class SimpleMemobj : public MemObject
 
         /**
          * Get a list of the non-overlapping address ranges the owner is
-         * responsible for. All slave ports must override this function
+         * responsible for. All response ports must override this function
          * and return a populated list with at least one item.
          *
          * @return a list of ranges responded to
@@ -95,14 +94,14 @@ class SimpleMemobj : public MemObject
 
       protected:
         /**
-         * Receive an atomic request packet from the master port.
+         * Receive an atomic request packet from the request port.
          * No need to implement in this simple memobj.
          */
         Tick recvAtomic(PacketPtr pkt) override
         { panic("recvAtomic unimpl."); }
 
         /**
-         * Receive a functional request packet from the master port.
+         * Receive a functional request packet from the request port.
          * Performs a "debug" access updating/reading the data in place.
          *
          * @param packet the requestor sent.
@@ -110,7 +109,7 @@ class SimpleMemobj : public MemObject
         void recvFunctional(PacketPtr pkt) override;
 
         /**
-         * Receive a timing request from the master port.
+         * Receive a timing request from the request port.
          *
          * @param the packet that the requestor sent
          * @return whether this object can consume the packet. If false, we
@@ -120,8 +119,8 @@ class SimpleMemobj : public MemObject
         bool recvTimingReq(PacketPtr pkt) override;
 
         /**
-         * Called by the master port if sendTimingResp was called on this
-         * slave port (causing recvTimingResp to be called on the master
+         * Called by the request port if sendTimingResp was called on this
+         * response port (causing recvTimingResp to be called on the request
          * port) and was unsuccesful.
          */
         void recvRespRetry() override;
@@ -131,7 +130,7 @@ class SimpleMemobj : public MemObject
      * Port on the memory-side that receives responses.
      * Mostly just forwards requests to the owner
      */
-    class MemSidePort : public MasterPort
+    class MemSidePort : public RequestPort
     {
       private:
         /// The object that owns this object (SimpleMemobj)
@@ -145,7 +144,7 @@ class SimpleMemobj : public MemObject
          * Constructor. Just calls the superclass constructor.
          */
         MemSidePort(const std::string& name, SimpleMemobj *owner) :
-            MasterPort(name, owner), owner(owner), blockedPacket(nullptr)
+            RequestPort(name, owner), owner(owner), blockedPacket(nullptr)
         { }
 
         /**
@@ -158,19 +157,19 @@ class SimpleMemobj : public MemObject
 
       protected:
         /**
-         * Receive a timing response from the slave port.
+         * Receive a timing response from the response port.
          */
         bool recvTimingResp(PacketPtr pkt) override;
 
         /**
-         * Called by the slave port if sendTimingReq was called on this
-         * master port (causing recvTimingReq to be called on the slave
+         * Called by the response port if sendTimingReq was called on this
+         * request port (causing recvTimingReq to be called on the responder
          * port) and was unsuccesful.
          */
         void recvReqRetry() override;
 
         /**
-         * Called to receive an address range change from the peer slave
+         * Called to receive an address range change from the peer responder
          * port. The default implementation ignores the change and does
          * nothing. Override this function in a derived class if the owner
          * needs to be aware of the address ranges, e.g. in an

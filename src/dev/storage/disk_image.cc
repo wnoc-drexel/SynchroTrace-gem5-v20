@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 /** @file
@@ -170,16 +168,6 @@ RawDiskImageParams::create()
 const uint32_t CowDiskImage::VersionMajor = 1;
 const uint32_t CowDiskImage::VersionMinor = 0;
 
-class CowDiskCallback : public Callback
-{
-  private:
-    CowDiskImage *image;
-
-  public:
-    CowDiskCallback(CowDiskImage *i) : image(i) {}
-    void process() { image->save(); delete this; }
-};
-
 CowDiskImage::CowDiskImage(const Params *p)
     : DiskImage(p), filename(p->image_file), child(p->child), table(NULL)
 {
@@ -193,7 +181,7 @@ CowDiskImage::CowDiskImage(const Params *p)
         }
 
         if (!p->read_only)
-            registerExitCallback(new CowDiskCallback(this));
+            registerExitCallback([this]() { save(); });
     }
 }
 
@@ -446,7 +434,7 @@ CowDiskImage::unserialize(CheckpointIn &cp)
 {
     string cowFilename;
     UNSERIALIZE_SCALAR(cowFilename);
-    cowFilename = cp.cptDir + "/" + cowFilename;
+    cowFilename = cp.getCptDir() + "/" + cowFilename;
     open(cowFilename);
 }
 

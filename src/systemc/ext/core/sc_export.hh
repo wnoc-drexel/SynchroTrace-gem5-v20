@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_EXT_CORE_SC_EXPORT_HH__
@@ -70,7 +68,7 @@ class sc_export : public sc_export_base
     {}
     virtual ~sc_export() {}
 
-    virtual const char *kind() const { return "sc_export"; }
+    virtual const char *kind() const override { return "sc_export"; }
 
     void operator () (IF &i) { bind(i); }
     virtual void
@@ -109,9 +107,9 @@ class sc_export : public sc_export_base
     const sc_interface *get_interface() const override { return interface; }
 
   protected:
-    void before_end_of_elaboration() {}
+    void before_end_of_elaboration() override {}
     void
-    end_of_elaboration()
+    end_of_elaboration() override
     {
         if (!interface) {
             std::string msg = "export not bound: export '";
@@ -119,8 +117,8 @@ class sc_export : public sc_export_base
             SC_REPORT_ERROR("(E109) complete binding failed", msg.c_str());
         }
     }
-    void start_of_simulation() {}
-    void end_of_simulation() {}
+    void start_of_simulation() override  {}
+    void end_of_simulation() override {}
 
   private:
     IF *interface;

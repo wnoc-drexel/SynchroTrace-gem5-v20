@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/isa.hh"
@@ -42,8 +40,7 @@ namespace X86ISA
 
 void
 ISA::updateHandyM5Reg(Efer efer, CR0 cr0,
-                      SegAttr csAttr, SegAttr ssAttr, RFLAGS rflags,
-                      ThreadContext *tc)
+                      SegAttr csAttr, SegAttr ssAttr, RFLAGS rflags)
 {
     HandyM5Reg m5reg = 0;
     if (efer.lma) {
@@ -108,12 +105,32 @@ ISA::clear()
     // Blank everything. 0 might not be an appropriate value for some things,
     // but it is for most.
     memset(regVal, 0, NumMiscRegs * sizeof(RegVal));
+
+    // If some state should be non-zero after a reset, set those values here.
+    regVal[MISCREG_CR0] = 0x0000000060000010ULL;
+
+    regVal[MISCREG_MTRRCAP] = 0x0508;
+
+    regVal[MISCREG_MCG_CAP] = 0x104;
+
+    regVal[MISCREG_PAT] = 0x0007040600070406ULL;
+
+    regVal[MISCREG_SYSCFG] = 0x20601;
+
+    regVal[MISCREG_TOP_MEM] = 0x4000000;
+
     regVal[MISCREG_DR6] = (mask(8) << 4) | (mask(16) << 16);
     regVal[MISCREG_DR7] = 1 << 10;
+
+    LocalApicBase lApicBase = 0;
+    lApicBase.base = 0xFEE00000 >> 12;
+    lApicBase.enable = 1;
+    // The "bsp" bit will be set when this register is read, since then we'll
+    // have a ThreadContext to check the contextId from.
+    regVal[MISCREG_APIC_BASE] = lApicBase;
 }
 
-ISA::ISA(Params *p)
-    : SimObject(p)
+ISA::ISA(Params *p) : BaseISA(p)
 {
     clear();
 }
@@ -136,7 +153,7 @@ ISA::readMiscRegNoEffect(int miscReg) const
 }
 
 RegVal
-ISA::readMiscReg(int miscReg, ThreadContext * tc)
+ISA::readMiscReg(int miscReg)
 {
     if (miscReg == MISCREG_TSC) {
         return regVal[MISCREG_TSC] + tc->getCpuPtr()->curCycle();
@@ -146,6 +163,12 @@ ISA::readMiscReg(int miscReg, ThreadContext * tc)
         RegVal fsw = regVal[MISCREG_FSW];
         RegVal top = regVal[MISCREG_X87_TOP];
         return insertBits(fsw, 13, 11, top);
+    }
+
+    if (miscReg == MISCREG_APIC_BASE) {
+        LocalApicBase base = regVal[MISCREG_APIC_BASE];
+        base.bsp = (tc->contextId() == 0);
+        return base;
     }
 
     return readMiscRegNoEffect(miscReg);
@@ -194,7 +217,7 @@ ISA::setMiscRegNoEffect(int miscReg, RegVal val)
 }
 
 void
-ISA::setMiscReg(int miscReg, RegVal val, ThreadContext * tc)
+ISA::setMiscReg(int miscReg, RegVal val)
 {
     RegVal newVal = val;
     switch(miscReg)
@@ -226,8 +249,7 @@ ISA::setMiscReg(int miscReg, RegVal val, ThreadContext * tc)
                              newCR0,
                              regVal[MISCREG_CS_ATTR],
                              regVal[MISCREG_SS_ATTR],
-                             regVal[MISCREG_RFLAGS],
-                             tc);
+                             regVal[MISCREG_RFLAGS]);
         }
         break;
       case MISCREG_CR2:
@@ -268,8 +290,7 @@ ISA::setMiscReg(int miscReg, RegVal val, ThreadContext * tc)
                              regVal[MISCREG_CR0],
                              newCSAttr,
                              regVal[MISCREG_SS_ATTR],
-                             regVal[MISCREG_RFLAGS],
-                             tc);
+                             regVal[MISCREG_RFLAGS]);
         }
         break;
       case MISCREG_SS_ATTR:
@@ -277,8 +298,7 @@ ISA::setMiscReg(int miscReg, RegVal val, ThreadContext * tc)
                          regVal[MISCREG_CR0],
                          regVal[MISCREG_CS_ATTR],
                          val,
-                         regVal[MISCREG_RFLAGS],
-                         tc);
+                         regVal[MISCREG_RFLAGS]);
         break;
       // These segments always actually use their bases, or in other words
       // their effective bases must stay equal to their actual bases.
@@ -385,8 +405,7 @@ ISA::setMiscReg(int miscReg, RegVal val, ThreadContext * tc)
                          regVal[MISCREG_CR0],
                          regVal[MISCREG_CS_ATTR],
                          regVal[MISCREG_SS_ATTR],
-                         regVal[MISCREG_RFLAGS],
-                         tc);
+                         regVal[MISCREG_RFLAGS]);
         return;
       default:
         break;
@@ -408,13 +427,13 @@ ISA::unserialize(CheckpointIn &cp)
                      regVal[MISCREG_CR0],
                      regVal[MISCREG_CS_ATTR],
                      regVal[MISCREG_SS_ATTR],
-                     regVal[MISCREG_RFLAGS],
-                     NULL);
+                     regVal[MISCREG_RFLAGS]);
 }
 
 void
-ISA::startup(ThreadContext *tc)
+ISA::setThreadContext(ThreadContext *_tc)
 {
+    BaseISA::setThreadContext(_tc);
     tc->getDecoderPtr()->setM5Reg(regVal[MISCREG_M5_REG]);
 }
 

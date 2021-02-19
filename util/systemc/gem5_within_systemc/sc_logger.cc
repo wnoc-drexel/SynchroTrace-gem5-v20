@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 ARM Limited
+ * Copyright (c) 2014, 2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -79,7 +77,7 @@ class CuttingStreambuf : public std::streambuf
 
 void CuttingStreambuf::outputLine()
 {
-    logger->logMessage((Tick)-1, "gem5", line.str());
+    logger->logMessage((Tick)-1, "gem5", "", line.str());
     line.clear();
     line.str("");
 }
@@ -133,7 +131,7 @@ Logger::~Logger()
 /** Log a single message as a single sc_report call */
 void
 Logger::logMessage(Tick when, const std::string &name,
-    const std::string &message)
+    const std::string &flag, const std::string &message)
 {
     /* Need to chop the newline off the message */
     std::string message_without_nl = message;

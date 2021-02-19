@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Timothy M. Jones
  */
 
 #include "arch/power/insts/branch.hh"
@@ -36,7 +34,8 @@
 using namespace PowerISA;
 
 const std::string &
-PCDependentDisassembly::disassemble(Addr pc, const SymbolTable *symtab) const
+PCDependentDisassembly::disassemble(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     if (!cachedDisassembly ||
         pc != cachedPC || symtab != cachedSymtab)
@@ -60,7 +59,8 @@ BranchPCRel::branchTarget(const PowerISA::PCState &pc) const
 }
 
 std::string
-BranchPCRel::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+BranchPCRel::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 
@@ -68,11 +68,11 @@ BranchPCRel::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     Addr target = pc + disp;
 
-    std::string str;
-    if (symtab && symtab->findSymbol(target, str))
-        ss << str;
+    Loader::SymbolTable::const_iterator it;
+    if (symtab && (it = symtab->find(target)) != symtab->end())
+        ss << it->name;
     else
-        ccprintf(ss, "0x%x", target);
+        ccprintf(ss, "%#x", target);
 
     return ss.str();
 }
@@ -84,17 +84,18 @@ BranchNonPCRel::branchTarget(const PowerISA::PCState &pc) const
 }
 
 std::string
-BranchNonPCRel::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+BranchNonPCRel::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 
     ccprintf(ss, "%-10s ", mnemonic);
 
-    std::string str;
-    if (symtab && symtab->findSymbol(targetAddr, str))
-        ss << str;
+    Loader::SymbolTable::const_iterator it;
+    if (symtab && (it = symtab->find(targetAddr)) != symtab->end())
+        ss << it->name;
     else
-        ccprintf(ss, "0x%x", targetAddr);
+        ccprintf(ss, "%#x", targetAddr);
 
     return ss.str();
 }
@@ -106,7 +107,8 @@ BranchPCRelCond::branchTarget(const PowerISA::PCState &pc) const
 }
 
 std::string
-BranchPCRelCond::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+BranchPCRelCond::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 
@@ -116,11 +118,11 @@ BranchPCRelCond::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     Addr target = pc + disp;
 
-    std::string str;
-    if (symtab && symtab->findSymbol(target, str))
-        ss << str;
+    Loader::SymbolTable::const_iterator it;
+    if (symtab && (it = symtab->find(target)) != symtab->end())
+        ss << it->name;
     else
-        ccprintf(ss, "0x%x", target);
+        ccprintf(ss, "%#x", target);
 
     return ss.str();
 }
@@ -132,8 +134,8 @@ BranchNonPCRelCond::branchTarget(const PowerISA::PCState &pc) const
 }
 
 std::string
-BranchNonPCRelCond::generateDisassembly(Addr pc,
-                                        const SymbolTable *symtab) const
+BranchNonPCRelCond::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 
@@ -141,11 +143,11 @@ BranchNonPCRelCond::generateDisassembly(Addr pc,
 
     ss << bo << ", " << bi << ", ";
 
-    std::string str;
-    if (symtab && symtab->findSymbol(targetAddr, str))
-        ss << str;
+    Loader::SymbolTable::const_iterator it;
+    if (symtab && (it = symtab->find(targetAddr)) != symtab->end())
+        ss << it->name;
     else
-        ccprintf(ss, "0x%x", targetAddr);
+        ccprintf(ss, "%#x", targetAddr);
 
     return ss.str();
 }
@@ -158,8 +160,8 @@ BranchRegCond::branchTarget(ThreadContext *tc) const
 }
 
 std::string
-BranchRegCond::generateDisassembly(Addr pc,
-                                   const SymbolTable *symtab) const
+BranchRegCond::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 

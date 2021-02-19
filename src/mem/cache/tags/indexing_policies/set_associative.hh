@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
- *          Erik Hallnor
  */
 
 /**
@@ -81,14 +78,14 @@ class ReplaceableEntry;
  */
 class SetAssociative : public BaseIndexingPolicy
 {
-  private:
+  protected:
     /**
      * Apply a hash function to calculate address set.
      *
      * @param addr The address to calculate the set for.
      * @return The set index for given combination of address and way.
      */
-    uint32_t extractSet(const Addr addr) const;
+    virtual uint32_t extractSet(const Addr addr) const;
 
   public:
     /**

@@ -32,9 +32,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andrew Bardsley
-#
 
 """The High-Performance In-order (HPI) CPU timing model is tuned to be
 representative of a modern in-order ARMv8-A implementation. The HPI
@@ -1334,10 +1331,10 @@ class HPI_FUPool(MinorFUPool):
         HPI_MiscFU() # 6
         ]
 
-class HPI_DTB(ArmTLB):
+class HPI_DTB(ArmDTB):
     size = 256
 
-class HPI_ITB(ArmTLB):
+class HPI_ITB(ArmITB):
     size = 256
 
 class HPI_WalkCache(Cache):

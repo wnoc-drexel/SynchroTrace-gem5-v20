@@ -24,21 +24,21 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 #include "mem/cache/prefetch/slim_ampm.hh"
 
 #include "params/SlimAMPMPrefetcher.hh"
 
-SlimAMPMPrefetcher::SlimAMPMPrefetcher(const SlimAMPMPrefetcherParams* p)
-  : QueuedPrefetcher(p), ampm(*p->ampm), dcpt(*p->dcpt)
+namespace Prefetcher {
+
+SlimAMPM::SlimAMPM(const SlimAMPMPrefetcherParams* p)
+  : Queued(p), ampm(*p->ampm), dcpt(*p->dcpt)
 {
 }
 
 void
-SlimAMPMPrefetcher::calculatePrefetch(const PrefetchInfo &pfi,
+SlimAMPM::calculatePrefetch(const PrefetchInfo &pfi,
                   std::vector<AddrPriority> &addresses)
 {
     dcpt.calculatePrefetch(pfi, addresses);
@@ -47,8 +47,10 @@ SlimAMPMPrefetcher::calculatePrefetch(const PrefetchInfo &pfi,
     }
 }
 
-SlimAMPMPrefetcher*
+} // namespace Prefetcher
+
+Prefetcher::SlimAMPM*
 SlimAMPMPrefetcherParams::create()
 {
-    return new SlimAMPMPrefetcher(this);
+    return new Prefetcher::SlimAMPM(this);
 }

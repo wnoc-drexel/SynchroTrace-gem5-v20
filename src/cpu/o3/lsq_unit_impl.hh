@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2010-2014, 2017-2018 ARM Limited
+ * Copyright (c) 2010-2014, 2017-2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -38,9 +38,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
  */
 
 #ifndef __CPU_O3_LSQ_UNIT_IMPL_HH__
@@ -54,6 +51,7 @@
 #include "cpu/o3/lsq.hh"
 #include "cpu/o3/lsq_unit.hh"
 #include "debug/Activity.hh"
+#include "debug/HtmCpu.hh"
 #include "debug/IEW.hh"
 #include "debug/LSQUnit.hh"
 #include "debug/O3PipeView.hh"
@@ -115,6 +113,59 @@ LSQUnit<Impl>::completeDataAccess(PacketPtr pkt)
     LSQSenderState *state = dynamic_cast<LSQSenderState *>(pkt->senderState);
     DynInstPtr inst = state->inst;
 
+    // hardware transactional memory
+    // sanity check
+    if (pkt->isHtmTransactional() && !inst->isSquashed()) {
+        assert(inst->getHtmTransactionUid() == pkt->getHtmTransactionUid());
+    }
+
+    // if in a HTM transaction, it's possible
+    // to abort within the cache hierarchy.
+    // This is signalled back to the processor
+    // through responses to memory requests.
+    if (pkt->htmTransactionFailedInCache()) {
+        // cannot do this for write requests because
+        // they cannot tolerate faults
+        const HtmCacheFailure htm_rc =
+            pkt->getHtmTransactionFailedInCacheRC();
+        if(pkt->isWrite()) {
+            DPRINTF(HtmCpu,
+                "store notification (ignored) of HTM transaction failure "
+                "in cache - addr=0x%lx - rc=%s - htmUid=%d\n",
+                pkt->getAddr(), htmFailureToStr(htm_rc),
+                pkt->getHtmTransactionUid());
+        } else {
+            HtmFailureFaultCause fail_reason =
+                HtmFailureFaultCause::INVALID;
+
+            if (htm_rc == HtmCacheFailure::FAIL_SELF) {
+                fail_reason = HtmFailureFaultCause::SIZE;
+            } else if (htm_rc == HtmCacheFailure::FAIL_REMOTE) {
+                fail_reason = HtmFailureFaultCause::MEMORY;
+            } else if (htm_rc == HtmCacheFailure::FAIL_OTHER) {
+                // these are likely loads that were issued out of order
+                // they are faulted here, but it's unlikely that these will
+                // ever reach the commit head.
+                fail_reason = HtmFailureFaultCause::OTHER;
+            } else {
+                panic("HTM error - unhandled return code from cache (%s)",
+                      htmFailureToStr(htm_rc));
+            }
+
+            inst->fault =
+            std::make_shared<GenericHtmFailureFault>(
+                inst->getHtmTransactionUid(),
+                fail_reason);
+
+            DPRINTF(HtmCpu,
+                "load notification of HTM transaction failure "
+                "in cache - pc=%s - addr=0x%lx - "
+                "rc=%u - htmUid=%d\n",
+                inst->pcState(), pkt->getAddr(),
+                htmFailureToStr(htm_rc), pkt->getHtmTransactionUid());
+        }
+    }
+
     cpu->ppDataAccessComplete->notify(std::make_pair(inst, pkt));
 
     /* Notify the sender state that the access is complete (for ownership
@@ -128,6 +179,13 @@ LSQUnit<Impl>::completeDataAccess(PacketPtr pkt)
             // after receving the response from the memory
             assert(inst->isLoad() || inst->isStoreConditional() ||
                    inst->isAtomic());
+
+            // hardware transactional memory
+            if (pkt->htmTransactionFailedInCache()) {
+                state->request()->mainPacket()->setHtmTransactionFailedInCache(
+                    pkt->getHtmTransactionFailedInCacheRC() );
+            }
+
             writeback(inst, state->request()->mainPacket());
             if (inst->isStore() || inst->isAtomic()) {
                 auto ss = dynamic_cast<SQSenderState*>(state);
@@ -145,9 +203,12 @@ LSQUnit<Impl>::completeDataAccess(PacketPtr pkt)
 template <class Impl>
 LSQUnit<Impl>::LSQUnit(uint32_t lqEntries, uint32_t sqEntries)
     : lsqID(-1), storeQueue(sqEntries+1), loadQueue(lqEntries+1),
-      loads(0), stores(0), storesToWB(0), cacheBlockMask(0), stalled(false),
+      loads(0), stores(0), storesToWB(0),
+      htmStarts(0), htmStops(0),
+      lastRetiredHtmUid(0),
+      cacheBlockMask(0), stalled(false),
       isStoreBlocked(false), storeInFlight(false), hasPendingRequest(false),
-      pendingRequest(nullptr)
+      pendingRequest(nullptr), stats(nullptr)
 {
 }
 
@@ -162,6 +223,8 @@ LSQUnit<Impl>::init(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params,
     iewStage = iew_ptr;
 
     lsq = lsq_ptr;
+
+    cpu->addStatGroup(csprintf("lsq%i", lsqID).c_str(), &stats);
 
     DPRINTF(LSQUnit, "Creating LSQUnit%i object.\n",lsqID);
 
@@ -179,6 +242,9 @@ LSQUnit<Impl>::resetState()
 {
     loads = stores = storesToWB = 0;
 
+    // hardware transactional memory
+    // nesting depth
+    htmStarts = htmStops = 0;
 
     storeWBIt = storeQueue.begin();
 
@@ -201,54 +267,25 @@ LSQUnit<Impl>::name() const
     }
 }
 
-template<class Impl>
-void
-LSQUnit<Impl>::regStats()
+template <class Impl>
+LSQUnit<Impl>::LSQUnitStats::LSQUnitStats(Stats::Group *parent)
+    : Stats::Group(parent),
+      ADD_STAT(forwLoads, "Number of loads that had data forwarded from"
+          " stores"),
+      ADD_STAT(squashedLoads, "Number of loads squashed"),
+      ADD_STAT(ignoredResponses, "Number of memory responses ignored"
+          " because the instruction is squashed"),
+      ADD_STAT(memOrderViolation, "Number of memory ordering violations"),
+      ADD_STAT(squashedStores, "Number of stores squashed"),
+      ADD_STAT(rescheduledLoads, "Number of loads that were rescheduled"),
+      ADD_STAT(blockedByCache, "Number of times an access to memory failed"
+          " due to the cache being blocked")
 {
-    lsqForwLoads
-        .name(name() + ".forwLoads")
-        .desc("Number of loads that had data forwarded from stores");
-
-    invAddrLoads
-        .name(name() + ".invAddrLoads")
-        .desc("Number of loads ignored due to an invalid address");
-
-    lsqSquashedLoads
-        .name(name() + ".squashedLoads")
-        .desc("Number of loads squashed");
-
-    lsqIgnoredResponses
-        .name(name() + ".ignoredResponses")
-        .desc("Number of memory responses ignored because the instruction is squashed");
-
-    lsqMemOrderViolation
-        .name(name() + ".memOrderViolation")
-        .desc("Number of memory ordering violations");
-
-    lsqSquashedStores
-        .name(name() + ".squashedStores")
-        .desc("Number of stores squashed");
-
-    invAddrSwpfs
-        .name(name() + ".invAddrSwpfs")
-        .desc("Number of software prefetches ignored due to an invalid address");
-
-    lsqBlockedLoads
-        .name(name() + ".blockedLoads")
-        .desc("Number of blocked loads due to partial load-store forwarding");
-
-    lsqRescheduledLoads
-        .name(name() + ".rescheduledLoads")
-        .desc("Number of loads that were rescheduled");
-
-    lsqCacheBlocked
-        .name(name() + ".cacheBlocked")
-        .desc("Number of times an access to memory failed due to the cache being blocked");
 }
 
 template<class Impl>
 void
-LSQUnit<Impl>::setDcachePort(MasterPort *dcache_port)
+LSQUnit<Impl>::setDcachePort(RequestPort *dcache_port)
 {
     dcachePort = dcache_port;
 }
@@ -309,6 +346,45 @@ LSQUnit<Impl>::insertLoad(const DynInstPtr &load_inst)
     load_inst->lqIt = loadQueue.getIterator(load_inst->lqIdx);
 
     ++loads;
+
+    // hardware transactional memory
+    // transactional state and nesting depth must be tracked
+    // in the in-order part of the core.
+    if (load_inst->isHtmStart()) {
+        htmStarts++;
+        DPRINTF(HtmCpu, ">> htmStarts++ (%d) : htmStops (%d)\n",
+                htmStarts, htmStops);
+
+        const int htm_depth = htmStarts - htmStops;
+        const auto& htm_cpt = cpu->tcBase(lsqID)->getHtmCheckpointPtr();
+        auto htm_uid = htm_cpt->getHtmUid();
+
+        // for debugging purposes
+        if (!load_inst->inHtmTransactionalState()) {
+            htm_uid = htm_cpt->newHtmUid();
+            DPRINTF(HtmCpu, "generating new htmUid=%u\n", htm_uid);
+            if (htm_depth != 1) {
+                DPRINTF(HtmCpu,
+                    "unusual HTM transactional depth (%d)"
+                    " possibly caused by mispeculation - htmUid=%u\n",
+                    htm_depth, htm_uid);
+            }
+        }
+        load_inst->setHtmTransactionalState(htm_uid, htm_depth);
+    }
+
+    if (load_inst->isHtmStop()) {
+        htmStops++;
+        DPRINTF(HtmCpu, ">> htmStarts (%d) : htmStops++ (%d)\n",
+                htmStarts, htmStops);
+
+        if (htmStops==1 && htmStarts==0) {
+            DPRINTF(HtmCpu,
+            "htmStops==1 && htmStarts==0. "
+            "This generally shouldn't happen "
+            "(unless due to misspeculation)\n");
+        }
+    }
 }
 
 template <class Impl>
@@ -426,6 +502,7 @@ LSQUnit<Impl>::checkSnoop(PacketPtr pkt)
 
                 // Mark the load for re-execution
                 ld_inst->fault = std::make_shared<ReExec>();
+                req->setStateToFault();
             } else {
                 DPRINTF(LSQUnit, "HitExternal Snoop for addr %#x [sn:%lli]\n",
                         pkt->getAddr(), ld_inst->seqNum);
@@ -483,7 +560,7 @@ LSQUnit<Impl>::checkViolations(typename LoadQueue::iterator& loadIt,
                                 inst->seqNum, ld_inst->seqNum, ld_eff_addr1);
                         memDepViolator = ld_inst;
 
-                        ++lsqMemOrderViolation;
+                        ++stats.memOrderViolation;
 
                         return std::make_shared<GenericISA::M5PanicFault>(
                             "Detected fault with inst [sn:%lli] and "
@@ -510,7 +587,7 @@ LSQUnit<Impl>::checkViolations(typename LoadQueue::iterator& loadIt,
                         inst->seqNum, ld_inst->seqNum, ld_eff_addr1);
                 memDepViolator = ld_inst;
 
-                ++lsqMemOrderViolation;
+                ++stats.memOrderViolation;
 
                 return std::make_shared<GenericISA::M5PanicFault>(
                     "Detected fault with "
@@ -553,6 +630,16 @@ LSQUnit<Impl>::executeLoad(const DynInstPtr &inst)
 
     if (inst->isTranslationDelayed() && load_fault == NoFault)
         return load_fault;
+
+    if (load_fault != NoFault && inst->translationCompleted() &&
+        inst->savedReq->isPartialFault() && !inst->savedReq->isComplete()) {
+        assert(inst->savedReq->isSplit());
+        // If we have a partial fault where the mem access is not complete yet
+        // then the cache must have been blocked. This load will be re-executed
+        // when the cache gets unblocked. We will handle the fault when the
+        // mem access is complete.
+        return NoFault;
+    }
 
     // If the instruction faulted or predicated false, then we need to send it
     // along to commit without the instruction completing.
@@ -745,6 +832,21 @@ LSQUnit<Impl>::writebackStores()
 
         DynInstPtr inst = storeWBIt->instruction();
         LSQRequest* req = storeWBIt->request();
+
+        // Process store conditionals or store release after all previous
+        // stores are completed
+        if ((req->mainRequest()->isLLSC() ||
+             req->mainRequest()->isRelease()) &&
+             (storeWBIt.idx() != storeQueue.head())) {
+            DPRINTF(LSQUnit, "Store idx:%i PC:%s to Addr:%#x "
+                "[sn:%lli] is %s%s and not head of the queue\n",
+                storeWBIt.idx(), inst->pcState(),
+                req->request()->getPaddr(), inst->seqNum,
+                req->mainRequest()->isLLSC() ? "SC" : "",
+                req->mainRequest()->isRelease() ? "/Release" : "");
+            break;
+        }
+
         storeWBIt->committed() = true;
 
         assert(!inst->memData);
@@ -806,13 +908,14 @@ LSQUnit<Impl>::writebackStores()
             }
         }
 
-        if (req->request()->isMmappedIpr()) {
+        if (req->request()->isLocalAccess()) {
             assert(!inst->isStoreConditional());
+            assert(!inst->inHtmTransactionalState());
             ThreadContext *thread = cpu->tcBase(lsqID);
             PacketPtr main_pkt = new Packet(req->mainRequest(),
                                             MemCmd::WriteReq);
             main_pkt->dataStatic(inst->memData);
-            req->handleIprWrite(thread, main_pkt);
+            req->request()->localAccessor(thread, main_pkt);
             delete main_pkt;
             completeStore(storeWBIt);
             storeWBIt++;
@@ -853,6 +956,21 @@ LSQUnit<Impl>::squash(const InstSeqNum &squashed_num)
             stallingLoadIdx = 0;
         }
 
+        // hardware transactional memory
+        // Squashing instructions can alter the transaction nesting depth
+        // and must be corrected before fetching resumes.
+        if (loadQueue.back().instruction()->isHtmStart())
+        {
+            htmStarts = (--htmStarts < 0) ? 0 : htmStarts;
+            DPRINTF(HtmCpu, ">> htmStarts-- (%d) : htmStops (%d)\n",
+              htmStarts, htmStops);
+        }
+        if (loadQueue.back().instruction()->isHtmStop())
+        {
+            htmStops = (--htmStops < 0) ? 0 : htmStops;
+            DPRINTF(HtmCpu, ">> htmStarts (%d) : htmStops-- (%d)\n",
+              htmStarts, htmStops);
+        }
         // Clear the smart pointer to make sure it is decremented.
         loadQueue.back().instruction()->setSquashed();
         loadQueue.back().clear();
@@ -860,7 +978,41 @@ LSQUnit<Impl>::squash(const InstSeqNum &squashed_num)
         --loads;
 
         loadQueue.pop_back();
-        ++lsqSquashedLoads;
+        ++stats.squashedLoads;
+    }
+
+    // hardware transactional memory
+    // scan load queue (from oldest to youngest) for most recent valid htmUid
+    auto scan_it = loadQueue.begin();
+    uint64_t in_flight_uid = 0;
+    while (scan_it != loadQueue.end()) {
+        if (scan_it->instruction()->isHtmStart() &&
+            !scan_it->instruction()->isSquashed()) {
+            in_flight_uid = scan_it->instruction()->getHtmTransactionUid();
+            DPRINTF(HtmCpu, "loadQueue[%d]: found valid HtmStart htmUid=%u\n",
+                scan_it._idx, in_flight_uid);
+        }
+        scan_it++;
+    }
+    // If there's a HtmStart in the pipeline then use its htmUid,
+    // otherwise use the most recently committed uid
+    const auto& htm_cpt = cpu->tcBase(lsqID)->getHtmCheckpointPtr();
+    if (htm_cpt) {
+        const uint64_t old_local_htm_uid = htm_cpt->getHtmUid();
+        uint64_t new_local_htm_uid;
+        if (in_flight_uid > 0)
+            new_local_htm_uid = in_flight_uid;
+        else
+            new_local_htm_uid = lastRetiredHtmUid;
+
+        if (old_local_htm_uid != new_local_htm_uid) {
+            DPRINTF(HtmCpu, "flush: lastRetiredHtmUid=%u\n",
+                lastRetiredHtmUid);
+            DPRINTF(HtmCpu, "flush: resetting localHtmUid=%u\n",
+                new_local_htm_uid);
+
+            htm_cpt->setHtmUid(new_local_htm_uid);
+        }
     }
 
     if (memDepViolator && squashed_num < memDepViolator->seqNum) {
@@ -898,7 +1050,7 @@ LSQUnit<Impl>::squash(const InstSeqNum &squashed_num)
         --stores;
 
         storeQueue.pop_back();
-        ++lsqSquashedStores;
+        ++stats.squashedStores;
     }
 }
 
@@ -942,8 +1094,8 @@ LSQUnit<Impl>::writeback(const DynInstPtr &inst, PacketPtr pkt)
 
     // Squashed instructions do not need to complete their access.
     if (inst->isSquashed()) {
-        assert(!inst->isStore());
-        ++lsqIgnoredResponses;
+        assert (!inst->isStore() || inst->isStoreConditional());
+        ++stats.ignoredResponses;
         return;
     }
 
@@ -958,8 +1110,29 @@ LSQUnit<Impl>::writeback(const DynInstPtr &inst, PacketPtr pkt)
             // the access as this discards the current fault.
 
             // If we have an outstanding fault, the fault should only be of
-            // type ReExec.
-            assert(dynamic_cast<ReExec*>(inst->fault.get()) != nullptr);
+            // type ReExec or - in case of a SplitRequest - a partial
+            // translation fault
+
+            // Unless it's a hardware transactional memory fault
+            auto htm_fault = std::dynamic_pointer_cast<
+                GenericHtmFailureFault>(inst->fault);
+
+            if (!htm_fault) {
+                assert(dynamic_cast<ReExec*>(inst->fault.get()) != nullptr ||
+                       inst->savedReq->isPartialFault());
+
+            } else if (!pkt->htmTransactionFailedInCache()) {
+                // Situation in which the instruction has a hardware transactional
+                // memory fault but not the packet itself. This can occur with
+                // ldp_uop microops since access is spread over multiple packets.
+                DPRINTF(HtmCpu,
+                        "%s writeback with HTM failure fault, "
+                        "however, completing packet is not aware of "
+                        "transaction failure. cause=%s htmUid=%u\n",
+                        inst->staticInst->getName(),
+                        htmFailureToStr(htm_fault->getHtmFailureFaultCause()),
+                        htm_fault->getHtmUid());
+            }
 
             DPRINTF(LSQUnit, "Not completing instruction [sn:%lli] access "
                     "due to pending fault.\n", inst->seqNum);
@@ -1069,7 +1242,7 @@ LSQUnit<Impl>::trySendPacket(bool isLoad, PacketPtr data_pkt)
     } else {
         if (cache_got_blocked) {
             lsq->cacheBlocked(true);
-            ++lsqCacheBlocked;
+            ++stats.blockedByCache;
         }
         if (!isLoad) {
             assert(state->request() == storeWBIt->request());

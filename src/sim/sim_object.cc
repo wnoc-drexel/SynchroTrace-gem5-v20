@@ -25,9 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
  */
 
 #include "sim/sim_object.hh"
@@ -56,7 +53,9 @@ SimObject::SimObjectList SimObject::simObjectList;
 // SimObject constructor: used to maintain static simObjectList
 //
 SimObject::SimObject(const Params *p)
-    : EventManager(getEventQueue(p->eventq_index)), _params(p)
+    : EventManager(getEventQueue(p->eventq_index)),
+      Stats::Group(nullptr),
+      _params(p)
 {
 #ifdef DEBUG
     doDebugBreak = false;
@@ -95,19 +94,6 @@ SimObject::initState()
 
 void
 SimObject::startup()
-{
-}
-
-//
-// no default statistics, so nothing to do in base implementation
-//
-void
-SimObject::regStats()
-{
-}
-
-void
-SimObject::resetStats()
 {
 }
 

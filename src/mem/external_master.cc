@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
- *          Curtis Dunham
- *          Christian Menard
  */
 
 #include "mem/external_master.hh"
@@ -57,7 +53,7 @@ ExternalMaster::ExternalMaster(ExternalMasterParams *params) :
     portName(params->name + ".port"),
     portType(params->port_type),
     portData(params->port_data),
-    masterId(params->system->getMasterId(this))
+    id(params->system->getRequestorId(this))
 {}
 
 Port &

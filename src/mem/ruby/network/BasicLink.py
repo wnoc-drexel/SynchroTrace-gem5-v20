@@ -23,9 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
-#          Brad Beckmann
 
 from m5.params import *
 from m5.SimObject import SimObject
@@ -40,6 +37,7 @@ class BasicLink(SimObject):
     # Garnet models this by flit size
     bandwidth_factor = Param.Int("generic bandwidth factor, usually in bytes")
     weight = Param.Int(1, "used to restrict routing in shortest path analysis")
+    supported_vnets = VectorParam.Int([], "Vnets supported Default:All([])")
 
 class BasicExtLink(BasicLink):
     type = 'BasicExtLink'

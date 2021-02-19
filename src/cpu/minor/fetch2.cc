@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 #include "cpu/minor/fetch2.hh"
@@ -71,7 +69,7 @@ Fetch2::Fetch2(const std::string &name,
     processMoreThanOneInput(params.fetch2CycleInput),
     branchPredictor(*params.branchPred),
     fetchInfo(params.numThreads),
-    threadPriority(0)
+    threadPriority(0), stats(&cpu_)
 {
     if (outputWidth < 1)
         fatal("%s: decodeInputWidth must be >= 1 (%d)\n", name, outputWidth);
@@ -376,12 +374,10 @@ Fetch2::evaluate()
             } else {
                 uint8_t *line = line_in->line;
 
-                TheISA::MachInst inst_word;
                 /* The instruction is wholly in the line, can just
                  *  assign */
-                inst_word = TheISA::gtoh(
-                    *(reinterpret_cast<TheISA::MachInst *>
-                    (line + fetch_info.inputIndex)));
+                auto inst_word = *reinterpret_cast<TheISA::MachInst *>
+                                  (line + fetch_info.inputIndex);
 
                 if (!decoder->instReady()) {
                     decoder->moreBytes(fetch_info.pc,
@@ -417,17 +413,17 @@ Fetch2::evaluate()
 
                     // Collect some basic inst class stats
                     if (decoded_inst->isLoad())
-                        loadInstructions++;
+                        stats.loadInstructions++;
                     else if (decoded_inst->isStore())
-                        storeInstructions++;
+                        stats.storeInstructions++;
                     else if (decoded_inst->isAtomic())
-                        amoInstructions++;
+                        stats.amoInstructions++;
                     else if (decoded_inst->isVector())
-                        vecInstructions++;
+                        stats.vecInstructions++;
                     else if (decoded_inst->isFloating())
-                        fpInstructions++;
+                        stats.fpInstructions++;
                     else if (decoded_inst->isInteger())
-                        intInstructions++;
+                        stats.intInstructions++;
 
                     DPRINTF(Fetch, "Instruction extracted from line %s"
                         " lineWidth: %d output_index: %d inputIndex: %d"
@@ -606,40 +602,33 @@ Fetch2::isDrained()
            (*predictionOut.inputWire).isBubble();
 }
 
-void
-Fetch2::regStats()
+Fetch2::Fetch2Stats::Fetch2Stats(MinorCPU *cpu)
+      : Stats::Group(cpu, "fetch2"),
+      ADD_STAT(intInstructions,
+       "Number of integer instructions successfully decoded"),
+      ADD_STAT(fpInstructions,
+       "Number of floating point instructions successfully decoded"),
+      ADD_STAT(vecInstructions,
+       "Number of SIMD instructions successfully decoded"),
+      ADD_STAT(loadInstructions,
+       "Number of memory load instructions successfully decoded"),
+      ADD_STAT(storeInstructions,
+       "Number of memory store instructions successfully decoded"),
+      ADD_STAT(amoInstructions,
+       "Number of memory atomic instructions successfully decoded")
 {
-    using namespace Stats;
-
-    intInstructions
-        .name(name() + ".int_instructions")
-        .desc("Number of integer instructions successfully decoded")
-        .flags(total);
-
-    fpInstructions
-        .name(name() + ".fp_instructions")
-        .desc("Number of floating point instructions successfully decoded")
-        .flags(total);
-
-    vecInstructions
-        .name(name() + ".vec_instructions")
-        .desc("Number of SIMD instructions successfully decoded")
-        .flags(total);
-
-    loadInstructions
-        .name(name() + ".load_instructions")
-        .desc("Number of memory load instructions successfully decoded")
-        .flags(total);
-
-    storeInstructions
-        .name(name() + ".store_instructions")
-        .desc("Number of memory store instructions successfully decoded")
-        .flags(total);
-
-    amoInstructions
-        .name(name() + ".amo_instructions")
-        .desc("Number of memory atomic instructions successfully decoded")
-        .flags(total);
+        intInstructions
+            .flags(Stats::total);
+        fpInstructions
+            .flags(Stats::total);
+        vecInstructions
+            .flags(Stats::total);
+        loadInstructions
+            .flags(Stats::total);
+        storeInstructions
+            .flags(Stats::total);
+        amoInstructions
+            .flags(Stats::total);
 }
 
 void

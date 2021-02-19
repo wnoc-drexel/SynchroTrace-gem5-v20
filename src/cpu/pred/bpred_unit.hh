@@ -37,11 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
- *          Timothy M. Jones
- *          Nilay Vaish
  */
 
 #ifndef __CPU_PRED_BPRED_UNIT_HH__
@@ -72,11 +67,6 @@ class BPredUnit : public SimObject
      * @param params The params object, that has the size of the BP and BTB.
      */
     BPredUnit(const Params *p);
-
-    /**
-     * Registers statistics.
-     */
-    void regStats() override;
 
     void regProbePoints() override;
 
@@ -182,8 +172,7 @@ class BPredUnit : public SimObject
      */
     virtual void update(ThreadID tid, Addr instPC, bool taken,
                    void *bp_history, bool squashed,
-                   const StaticInstPtr & inst = StaticInst::nullStaticInstPtr,
-                   Addr corrTarget = MaxAddr) = 0;
+                   const StaticInstPtr &inst, Addr corrTarget) = 0;
     /**
      * Updates the BTB with the target of a branch.
      * @param inst_PC The branch's PC that will be updated.
@@ -288,33 +277,35 @@ class BPredUnit : public SimObject
     /** The indirect target predictor. */
     IndirectPredictor * iPred;
 
-    /** Stat for number of BP lookups. */
-    Stats::Scalar lookups;
-    /** Stat for number of conditional branches predicted. */
-    Stats::Scalar condPredicted;
-    /** Stat for number of conditional branches predicted incorrectly. */
-    Stats::Scalar condIncorrect;
-    /** Stat for number of BTB lookups. */
-    Stats::Scalar BTBLookups;
-    /** Stat for number of BTB hits. */
-    Stats::Scalar BTBHits;
-    /** Stat for number of times the BTB is correct. */
-    Stats::Scalar BTBCorrect;
-    /** Stat for percent times an entry in BTB found. */
-    Stats::Formula BTBHitPct;
-    /** Stat for number of times the RAS is used to get a target. */
-    Stats::Scalar usedRAS;
-    /** Stat for number of times the RAS is incorrect. */
-    Stats::Scalar RASIncorrect;
+    struct BPredUnitStats : public Stats::Group {
+        BPredUnitStats(Stats::Group *parent);
 
-    /** Stat for the number of indirect target lookups.*/
-    Stats::Scalar indirectLookups;
-    /** Stat for the number of indirect target hits.*/
-    Stats::Scalar indirectHits;
-    /** Stat for the number of indirect target misses.*/
-    Stats::Scalar indirectMisses;
-    /** Stat for the number of indirect target mispredictions.*/
-    Stats::Scalar indirectMispredicted;
+        /** Stat for number of BP lookups. */
+        Stats::Scalar lookups;
+        /** Stat for number of conditional branches predicted. */
+        Stats::Scalar condPredicted;
+        /** Stat for number of conditional branches predicted incorrectly. */
+        Stats::Scalar condIncorrect;
+        /** Stat for number of BTB lookups. */
+        Stats::Scalar BTBLookups;
+        /** Stat for number of BTB hits. */
+        Stats::Scalar BTBHits;
+        /** Stat for percent times an entry in BTB found. */
+        Stats::Formula BTBHitPct;
+        /** Stat for number of times the RAS is used to get a target. */
+        Stats::Scalar RASUsed;
+        /** Stat for number of times the RAS is incorrect. */
+        Stats::Scalar RASIncorrect;
+
+        /** Stat for the number of indirect target lookups.*/
+        Stats::Scalar indirectLookups;
+        /** Stat for the number of indirect target hits.*/
+        Stats::Scalar indirectHits;
+        /** Stat for the number of indirect target misses.*/
+        Stats::Scalar indirectMisses;
+        /** Stat for the number of indirect target mispredictions.*/
+        Stats::Scalar indirectMispredicted;
+    } stats;
 
   protected:
     /** Number of bits to shift instructions by for predictor addresses. */

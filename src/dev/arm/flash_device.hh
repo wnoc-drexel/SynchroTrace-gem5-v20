@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Rene de Jong
  */
 #ifndef __DEV_ARM_FLASH_DEVICE_HH__
 #define __DEV_ARM_FLASH_DEVICE_HH__
@@ -89,7 +87,7 @@ class FlashDevice : public AbstractNVM
 
     struct CallBackEntry {
         Tick time;
-        Callback *function;
+        std::function<void()> function;
     };
 
     struct FlashDeviceStats {
@@ -107,19 +105,22 @@ class FlashDevice : public AbstractNVM
     };
 
     /** Device access functions Inherrited from AbstractNVM*/
-    void initializeMemory(uint64_t disk_size, uint32_t sector_size) override
+    void
+    initializeMemory(uint64_t disk_size, uint32_t sector_size) override
     {
         initializeFlash(disk_size, sector_size);
     }
 
-    void readMemory(uint64_t address, uint32_t amount,
-                    Callback *event) override
+    void
+    readMemory(uint64_t address, uint32_t amount,
+               const std::function<void()> &event) override
     {
         accessDevice(address, amount, event, ActionRead);
     }
 
-    void writeMemory(uint64_t address, uint32_t amount,
-                     Callback *event) override
+    void
+    writeMemory(uint64_t address, uint32_t amount,
+                const std::function<void()> &event) override
     {
         accessDevice(address, amount, event, ActionWrite);
     }
@@ -128,8 +129,8 @@ class FlashDevice : public AbstractNVM
     void initializeFlash(uint64_t disk_size, uint32_t sector_size);
 
     /**Flash action function*/
-    void accessDevice(uint64_t address, uint32_t amount, Callback *event,
-                      Actions action);
+    void accessDevice(uint64_t address, uint32_t amount,
+                      const std::function<void()> &event, Actions action);
 
     /** Event rescheduler*/
     void actionComplete();

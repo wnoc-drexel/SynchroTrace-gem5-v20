@@ -168,7 +168,7 @@ TAGE_SC_L_TAGE::calculateIndicesAndTags(
 }
 
 unsigned
-TAGE_SC_L_TAGE::getUseAltIdx(TAGEBase::BranchInfo* bi)
+TAGE_SC_L_TAGE::getUseAltIdx(TAGEBase::BranchInfo* bi, Addr branch_pc)
 {
     BranchInfo *tbi = static_cast<BranchInfo *>(bi);
     unsigned idx;
@@ -419,8 +419,6 @@ TAGE_SC_L::update(ThreadID tid, Addr branch_pc, bool taken, void *bp_history,
     TAGE_SC_L_TAGE::BranchInfo* tage_bi =
         static_cast<TAGE_SC_L_TAGE::BranchInfo *>(bi->tageBranchInfo);
 
-    assert(corrTarget != MaxAddr);
-
     if (squashed) {
         if (tage->isSpeculativeUpdateEnabled()) {
             // This restores the global history, then update it
@@ -457,12 +455,7 @@ TAGE_SC_L::update(ThreadID tid, Addr branch_pc, bool taken, void *bp_history,
     }
 
     if (!tage->isSpeculativeUpdateEnabled()) {
-        int brtype = inst->isDirectCtrl() ? 0 : 2;
-        if (! inst->isUncondCtrl()) {
-            ++brtype;
-        }
-
-        statisticalCorrector->scHistoryUpdate(branch_pc, brtype, taken,
+        statisticalCorrector->scHistoryUpdate(branch_pc, inst, taken,
                                               bi->scBranchInfo, corrTarget);
 
         tage->updateHistories(tid, branch_pc, taken, bi->tageBranchInfo, false,

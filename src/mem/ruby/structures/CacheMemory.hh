@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2020 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 1999-2012 Mark D. Hill and David A. Wood
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved.
@@ -35,13 +47,14 @@
 #include <vector>
 
 #include "base/statistics.hh"
-#include "mem/protocol/CacheRequestType.hh"
-#include "mem/protocol/CacheResourceType.hh"
-#include "mem/protocol/RubyRequest.hh"
+#include "mem/cache/replacement_policies/base.hh"
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
 #include "mem/ruby/common/DataBlock.hh"
+#include "mem/ruby/protocol/CacheRequestType.hh"
+#include "mem/ruby/protocol/CacheResourceType.hh"
+#include "mem/ruby/protocol/RubyRequest.hh"
 #include "mem/ruby/slicc_interface/AbstractCacheEntry.hh"
 #include "mem/ruby/slicc_interface/RubySlicc_ComponentMapping.hh"
-#include "mem/ruby/structures/AbstractReplacementPolicy.hh"
 #include "mem/ruby/structures/BankedArray.hh"
 #include "mem/ruby/system/CacheRecorder.hh"
 #include "params/RubyCache.hh"
@@ -51,6 +64,7 @@ class CacheMemory : public SimObject
 {
   public:
     typedef RubyCacheParams Params;
+    typedef std::shared_ptr<ReplacementData> ReplData;
     CacheMemory(const Params *p);
     ~CacheMemory();
 
@@ -73,16 +87,18 @@ class CacheMemory : public SimObject
     //   b) an unused line in the same cache "way"
     bool cacheAvail(Addr address) const;
 
-    // find an unused entry and sets the tag appropriate for the address
-    AbstractCacheEntry* allocate(Addr address,
-                                 AbstractCacheEntry* new_entry, bool touch);
-    AbstractCacheEntry* allocate(Addr address, AbstractCacheEntry* new_entry)
+    // Returns a NULL entry that acts as a placeholder for invalid lines
+    AbstractCacheEntry*
+    getNullEntry() const
     {
-        return allocate(address, new_entry, true);
+        return nullptr;
     }
+
+    // find an unused entry and sets the tag appropriate for the address
+    AbstractCacheEntry* allocate(Addr address, AbstractCacheEntry* new_entry);
     void allocateVoid(Addr address, AbstractCacheEntry* new_entry)
     {
-        allocate(address, new_entry, true);
+        allocate(address, new_entry);
     }
 
     // Explicitly free up this address
@@ -107,8 +123,8 @@ class CacheMemory : public SimObject
     // Set this address to most recently used
     void setMRU(Addr address);
     void setMRU(Addr addr, int occupancy);
+    void setMRU(AbstractCacheEntry* entry);
     int getReplacementWeight(int64_t set, int64_t loc);
-    void setMRU(const AbstractCacheEntry *e);
 
     // Functions for locking and unlocking cache lines corresponding to the
     // provided address.  These are required for supporting atomic memory
@@ -117,6 +133,7 @@ class CacheMemory : public SimObject
     // provided by the AbstractCacheEntry class.
     void setLocked (Addr addr, int context);
     void clearLocked (Addr addr);
+    void clearLockedAll (int context);
     bool isLocked (Addr addr, int context);
 
     // Print cache contents
@@ -126,6 +143,10 @@ class CacheMemory : public SimObject
     void regStats();
     bool checkResourceAvailable(CacheResourceType res, Addr addr);
     void recordRequestType(CacheRequestType requestType, Addr addr);
+
+    // hardware transactional memory
+    void htmAbortTransaction();
+    void htmCommitTransaction();
 
   public:
     Stats::Scalar m_demand_hits;
@@ -145,6 +166,12 @@ class CacheMemory : public SimObject
 
     Stats::Scalar numTagArrayStalls;
     Stats::Scalar numDataArrayStalls;
+
+    // hardware transactional memory
+    Stats::Histogram htmTransCommitReadSet;
+    Stats::Histogram htmTransCommitWriteSet;
+    Stats::Histogram htmTransAbortReadSet;
+    Stats::Histogram htmTransAbortWriteSet;
 
     int getCacheSize() const { return m_cache_size; }
     int getCacheAssoc() const { return m_cache_assoc; }
@@ -173,7 +200,11 @@ class CacheMemory : public SimObject
     std::unordered_map<Addr, int> m_tag_index;
     std::vector<std::vector<AbstractCacheEntry*> > m_cache;
 
-    AbstractReplacementPolicy *m_replacementPolicy_ptr;
+    /**
+     * We use BaseReplacementPolicy from Classic system here, hence we can use
+     * different replacement policies from Classic system in Ruby system.
+     */
+    BaseReplacementPolicy *m_replacementPolicy_ptr;
 
     BankedArray dataArray;
     BankedArray tagArray;
@@ -185,6 +216,22 @@ class CacheMemory : public SimObject
     int m_start_index_bit;
     bool m_resource_stalls;
     int m_block_size;
+
+    /**
+     * We store all the ReplacementData in a 2-dimensional array. By doing
+     * this, we can use all replacement policies from Classic system. Ruby
+     * cache will deallocate cache entry every time we evict the cache block
+     * so we cannot store the ReplacementData inside the cache entry.
+     * Instantiate ReplacementData for multiple times will break replacement
+     * policy like TreePLRU.
+     */
+    std::vector<std::vector<ReplData> > replacement_data;
+
+    /**
+     * Set to true when using WeightedLRU replacement policy, otherwise, set to
+     * false.
+     */
+    bool m_use_occupancy;
 };
 
 std::ostream& operator<<(std::ostream& out, const CacheMemory& obj);

@@ -34,8 +34,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gabe Black
 
 let {{
 
@@ -153,11 +151,10 @@ let {{
     bxjcode = '''
     HSTR hstr = Hstr;
     CPSR cpsr = Cpsr;
-    SCR  scr  = Scr;
 
     if (ArmSystem::haveVirtualization(xc->tcBase()) && hstr.tjdbx &&
-        !inSecureState(scr, cpsr) && (cpsr.mode != MODE_HYP)) {
-        fault = std::make_shared<HypervisorTrap>(machInst, op1, EC_TRAPPED_BXJ);
+        !isSecure(xc->tcBase()) && (cpsr.mode != MODE_HYP)) {
+       fault = std::make_shared<HypervisorTrap>(machInst, op1, EC_TRAPPED_BXJ);
     }
     IWNPC = Op1;
     '''
@@ -190,8 +187,7 @@ let {{
         if isTbh:
             eaCode = '''
             unsigned memAccessFlags = ArmISA::TLB::AllowUnaligned |
-                                      ArmISA::TLB::AlignHalfWord |
-                                      ArmISA::TLB::MustBeOne;
+                                      ArmISA::TLB::AlignHalfWord;
             EA = Op1 + Op2 * 2
             '''
             accCode = 'NPC = PC + 2 * (Mem_uh);\n'
@@ -199,8 +195,7 @@ let {{
         else:
             eaCode = '''
             unsigned memAccessFlags = ArmISA::TLB::AllowUnaligned |
-                                      ArmISA::TLB::AlignByte |
-                                      ArmISA::TLB::MustBeOne;
+                                      ArmISA::TLB::AlignByte;
             EA = Op1 + Op2
             '''
             accCode = 'NPC = PC + 2 * (Mem_ub)'

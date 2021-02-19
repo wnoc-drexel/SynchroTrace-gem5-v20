@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Steve Reinhardt
- *          Andreas Hansson
  */
 
 #include "cpu/testers/memtest/memtest.hh"
@@ -95,7 +91,7 @@ MemTest::MemTest(const Params *p)
       percentReads(p->percent_reads),
       percentFunctional(p->percent_functional),
       percentUncacheable(p->percent_uncacheable),
-      masterId(p->system->getMasterId(this)),
+      requestorId(p->system->getRequestorId(this)),
       blockSize(p->system->cacheLineSize()),
       blockAddrMask(blockSize - 1),
       progressInterval(p->progress_interval),
@@ -103,7 +99,7 @@ MemTest::MemTest(const Params *p)
       nextProgressMessage(p->progress_interval),
       maxLoads(p->max_loads),
       atomic(p->system->isAtomicMode()),
-      suppressFuncWarnings(p->suppress_func_warnings)
+      suppressFuncErrors(p->suppress_func_errors), stats(this)
 {
     id = TESTER_ALLOCATOR++;
     fatal_if(id >= blockSize, "Too many testers, only %d allowed\n",
@@ -150,10 +146,9 @@ MemTest::completeRequest(PacketPtr pkt, bool functional)
     const uint8_t *pkt_data = pkt->getConstPtr<uint8_t>();
 
     if (pkt->isError()) {
-        if (!functional || !suppressFuncWarnings) {
-            warn("%s access failed at %#x\n",
-                 pkt->isWrite() ? "Write" : "Read", req->getPaddr());
-        }
+        if (!functional || !suppressFuncErrors)
+            panic( "%s access failed at %#x\n",
+                pkt->isWrite() ? "Write" : "Read", req->getPaddr());
     } else {
         if (pkt->isRead()) {
             uint8_t ref_data = referenceData[req->getPaddr()];
@@ -165,7 +160,7 @@ MemTest::completeRequest(PacketPtr pkt, bool functional)
             }
 
             numReads++;
-            numReadsStat++;
+            stats.numReads++;
 
             if (numReads == (uint64_t)nextProgressMessage) {
                 ccprintf(cerr, "%s: completed %d read, %d write accesses @%d\n",
@@ -181,7 +176,7 @@ MemTest::completeRequest(PacketPtr pkt, bool functional)
             // update the reference data
             referenceData[req->getPaddr()] = pkt_data[0];
             numWrites++;
-            numWritesStat++;
+            stats.numWrites++;
         }
     }
 
@@ -195,23 +190,12 @@ MemTest::completeRequest(PacketPtr pkt, bool functional)
     else if (noResponseEvent.scheduled())
         deschedule(noResponseEvent);
 }
-
-void
-MemTest::regStats()
+MemTest::MemTestStats::MemTestStats(Stats::Group *parent)
+      : Stats::Group(parent),
+      ADD_STAT(numReads, "number of read accesses completed"),
+      ADD_STAT(numWrites, "number of write accesses completed")
 {
-    ClockedObject::regStats();
 
-    using namespace Stats;
-
-    numReadsStat
-        .name(name() + ".num_reads")
-        .desc("number of read accesses completed")
-        ;
-
-    numWritesStat
-        .name(name() + ".num_writes")
-        .desc("number of write accesses completed")
-        ;
 }
 
 void
@@ -246,7 +230,7 @@ MemTest::tick()
 
     bool do_functional = (random_mt.random(0, 100) < percentFunctional) &&
         !uncacheable;
-    RequestPtr req = std::make_shared<Request>(paddr, 1, flags, masterId);
+    RequestPtr req = std::make_shared<Request>(paddr, 1, flags, requestorId);
     req->setContext(id);
 
     outstandingAddrs.insert(paddr);

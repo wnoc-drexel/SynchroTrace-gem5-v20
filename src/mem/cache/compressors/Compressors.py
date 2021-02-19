@@ -1,4 +1,4 @@
-# Copyright (c) 2018 Inria
+# Copyright (c) 2018-2020 Inria
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Daniel Carvalho
 
 from m5.params import *
 from m5.proxy import *
@@ -33,15 +31,130 @@ from m5.SimObject import SimObject
 class BaseCacheCompressor(SimObject):
     type = 'BaseCacheCompressor'
     abstract = True
+    cxx_class = 'Compressor::Base'
     cxx_header = "mem/cache/compressors/base.hh"
 
     block_size = Param.Int(Parent.cache_line_size, "Block size in bytes")
+    chunk_size_bits = Param.Unsigned(32,
+        "Size of a parsing data chunk (in bits)")
+    size_threshold_percentage = Param.Percent(50,
+        "Minimum percentage of the block size, a compressed block must "
+        "achieve to be stored in compressed format")
 
-class BDI(BaseCacheCompressor):
-    type = 'BDI'
-    cxx_class = 'BDI'
-    cxx_header = "mem/cache/compressors/bdi.hh"
+class BaseDictionaryCompressor(BaseCacheCompressor):
+    type = 'BaseDictionaryCompressor'
+    abstract = True
+    cxx_class = 'Compressor::BaseDictionaryCompressor'
+    cxx_header = "mem/cache/compressors/dictionary_compressor.hh"
 
-    use_more_compressors = Param.Bool(True, "True if should use all possible" \
-        "combinations of base and delta for the compressors. False if using" \
-        "only the lowest possible delta size for each base size.");
+    dictionary_size = Param.Int(Parent.cache_line_size,
+        "Number of dictionary entries")
+
+class Base64Delta8(BaseDictionaryCompressor):
+    type = 'Base64Delta8'
+    cxx_class = 'Compressor::Base64Delta8'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 64
+
+class Base64Delta16(BaseDictionaryCompressor):
+    type = 'Base64Delta16'
+    cxx_class = 'Compressor::Base64Delta16'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 64
+
+class Base64Delta32(BaseDictionaryCompressor):
+    type = 'Base64Delta32'
+    cxx_class = 'Compressor::Base64Delta32'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 64
+
+class Base32Delta8(BaseDictionaryCompressor):
+    type = 'Base32Delta8'
+    cxx_class = 'Compressor::Base32Delta8'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 32
+
+class Base32Delta16(BaseDictionaryCompressor):
+    type = 'Base32Delta16'
+    cxx_class = 'Compressor::Base32Delta16'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 32
+
+class Base16Delta8(BaseDictionaryCompressor):
+    type = 'Base16Delta8'
+    cxx_class = 'Compressor::Base16Delta8'
+    cxx_header = "mem/cache/compressors/base_delta.hh"
+
+    chunk_size_bits = 16
+
+class CPack(BaseDictionaryCompressor):
+    type = 'CPack'
+    cxx_class = 'Compressor::CPack'
+    cxx_header = "mem/cache/compressors/cpack.hh"
+
+class FPCD(BaseDictionaryCompressor):
+    type = 'FPCD'
+    cxx_class = 'Compressor::FPCD'
+    cxx_header = "mem/cache/compressors/fpcd.hh"
+
+    dictionary_size = 2
+
+class MultiCompressor(BaseCacheCompressor):
+    type = 'MultiCompressor'
+    cxx_class = 'Compressor::Multi'
+    cxx_header = "mem/cache/compressors/multi.hh"
+
+    # Dummy default compressor list. This might not be an optimal choice,
+    # since these compressors have many overlapping patterns
+    compressors = VectorParam.BaseCacheCompressor([CPack(), FPCD()],
+        "Array of compressors")
+    encoding_in_tags = Param.Bool(False, "If set the bits to inform which "
+        "sub-compressor compressed some data are added to its corresponding "
+        "tag entry.")
+    extra_decomp_lat = Param.Unsigned(0, "Extra latency to be added to the "
+        "sub-compressor's decompression latency")
+
+class PerfectCompressor(BaseCacheCompressor):
+    type = 'PerfectCompressor'
+    cxx_class = 'Compressor::Perfect'
+    cxx_header = "mem/cache/compressors/perfect.hh"
+
+    chunk_size_bits = 64
+    max_compression_ratio = Param.Int(Parent.max_compression_ratio,
+        "Maximum compression ratio allowed")
+    compression_latency = Param.Cycles(1,
+        "Number of cycles to perform data compression")
+    decompression_latency = Param.Cycles(1,
+        "Number of cycles to perform data decompression")
+
+class RepeatedQwordsCompressor(BaseDictionaryCompressor):
+    type = 'RepeatedQwordsCompressor'
+    cxx_class = 'Compressor::RepeatedQwords'
+    cxx_header = "mem/cache/compressors/repeated_qwords.hh"
+
+    chunk_size_bits = 64
+
+class ZeroCompressor(BaseDictionaryCompressor):
+    type = 'ZeroCompressor'
+    cxx_class = 'Compressor::Zero'
+    cxx_header = "mem/cache/compressors/zero.hh"
+
+    chunk_size_bits = 64
+
+class BDI(MultiCompressor):
+    encoding_in_tags=True
+    compressors = [
+        ZeroCompressor(size_threshold_percentage=99),
+        RepeatedQwordsCompressor(size_threshold_percentage=99),
+        Base64Delta8(size_threshold_percentage=99),
+        Base64Delta16(size_threshold_percentage=99),
+        Base64Delta32(size_threshold_percentage=99),
+        Base32Delta8(size_threshold_percentage=99),
+        Base32Delta16(size_threshold_percentage=99),
+        Base16Delta8(size_threshold_percentage=99),
+    ]

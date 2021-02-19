@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Boris Shingarov
  */
 
 /*
@@ -141,7 +138,6 @@
 #include <sstream>
 #include <string>
 
-#include "arch/vtophys.hh"
 #include "base/intmath.hh"
 #include "base/socket.hh"
 #include "base/trace.hh"
@@ -150,9 +146,8 @@
 #include "cpu/static_inst.hh"
 #include "cpu/thread_context.hh"
 #include "debug/GDBAll.hh"
-#include "mem/fs_translating_port_proxy.hh"
 #include "mem/port.hh"
-#include "mem/se_translating_port_proxy.hh"
+#include "mem/port_proxy.hh"
 #include "sim/full_system.hh"
 #include "sim/system.hh"
 
@@ -175,8 +170,8 @@ class HardBreakpoint : public PCEvent
     int refcount;
 
   public:
-    HardBreakpoint(BaseRemoteGDB *_gdb, PCEventQueue *q, Addr pc)
-        : PCEvent(q, "HardBreakpoint Event", pc),
+    HardBreakpoint(BaseRemoteGDB *_gdb, PCEventScope *s, Addr pc)
+        : PCEvent(s, "HardBreakpoint Event", pc),
           gdb(_gdb), refcount(0)
     {
         DPRINTF(GDBMisc, "creating hardware breakpoint at %#x\n", evpc);
@@ -316,12 +311,6 @@ break_type(char c)
 #endif
 
 std::map<Addr, HardBreakpoint *> hardBreakMap;
-
-EventQueue *
-getComInstEventQueue(ThreadContext *tc)
-{
-    return tc->getCpuPtr()->comInstEventQueue[tc->threadId()];
-}
 
 }
 
@@ -614,14 +603,6 @@ BaseRemoteGDB::send(const char *bp)
 bool
 BaseRemoteGDB::read(Addr vaddr, size_t size, char *data)
 {
-    static Addr lastaddr = 0;
-    static size_t lastsize = 0;
-
-    if (vaddr < 10) {
-      DPRINTF(GDBRead, "read:  reading memory location zero!\n");
-      vaddr = lastaddr + lastsize;
-    }
-
     DPRINTF(GDBRead, "read:  addr=%#x, size=%d", vaddr, size);
 
     PortProxy &proxy = tc->getVirtProxy();
@@ -645,14 +626,6 @@ BaseRemoteGDB::read(Addr vaddr, size_t size, char *data)
 bool
 BaseRemoteGDB::write(Addr vaddr, size_t size, const char *data)
 {
-    static Addr lastaddr = 0;
-    static size_t lastsize = 0;
-
-    if (vaddr < 10) {
-      DPRINTF(GDBWrite, "write: writing memory location zero!\n");
-      vaddr = lastaddr + lastsize;
-    }
-
     if (DTRACE(GDBWrite)) {
         DPRINTFN("write: addr=%#x, size=%d", vaddr, size);
         if (DTRACE(GDBExtra)) {
@@ -717,7 +690,7 @@ BaseRemoteGDB::insertHardBreak(Addr addr, size_t len)
 
     HardBreakpoint *&bkpt = hardBreakMap[addr];
     if (bkpt == 0)
-        bkpt = new HardBreakpoint(this, &sys->pcEventQueue, addr);
+        bkpt = new HardBreakpoint(this, sys, addr);
 
     bkpt->refcount++;
 }
@@ -759,17 +732,16 @@ BaseRemoteGDB::setTempBreakpoint(Addr bkpt)
 void
 BaseRemoteGDB::scheduleInstCommitEvent(Event *ev, int delta)
 {
-    EventQueue *eq = getComInstEventQueue(tc);
     // Here "ticks" aren't simulator ticks which measure time, they're
     // instructions committed by the CPU.
-    eq->schedule(ev, eq->getCurTick() + delta);
+    tc->scheduleInstCountEvent(ev, tc->getCurrentInstCount() + delta);
 }
 
 void
 BaseRemoteGDB::descheduleInstCommitEvent(Event *ev)
 {
     if (ev->scheduled())
-        getComInstEventQueue(tc)->deschedule(ev);
+        tc->descheduleInstCountEvent(ev);
 }
 
 std::map<char, BaseRemoteGDB::GdbCommand> BaseRemoteGDB::command_map = {

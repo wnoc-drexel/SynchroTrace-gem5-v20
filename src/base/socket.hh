@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 #ifndef __SOCKET_HH__
@@ -34,6 +32,10 @@
 class ListenSocket
 {
   protected:
+    /**
+     * The following variables are only used by socket unit tests:
+     * listeningDisabled, anyListening, bindToLoopback.
+     */
     static bool listeningDisabled;
     static bool anyListening;
 
@@ -49,15 +51,27 @@ class ListenSocket
     bool listening;
     int fd;
 
+    /*
+     * cleanup resets the static variables back to their default values.
+     */
+    static void cleanup();
+
+
   public:
+    /**
+     * @ingroup api_socket
+     * @{
+     */
     ListenSocket();
     virtual ~ListenSocket();
 
     virtual int accept(bool nodelay = false);
+
     virtual bool listen(int port, bool reuse = true);
 
     int getfd() const { return fd; }
     bool islistening() const { return listening; }
+    /** @} */ // end of api_socket
 };
 
 #endif //__SOCKET_HH__

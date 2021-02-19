@@ -25,11 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
- *          Jaidev Patwardhan
- *          Korey Sewell
  */
 
 #ifndef __ARCH_MIPS_TLB_HH__
@@ -41,7 +36,6 @@
 #include "arch/mips/isa_traits.hh"
 #include "arch/mips/pagetable.hh"
 #include "arch/mips/utility.hh"
-#include "arch/mips/vtophys.hh"
 #include "base/statistics.hh"
 #include "mem/request.hh"
 #include "params/MipsTLB.hh"
@@ -66,18 +60,6 @@ class TLB : public BaseTLB
 
     void nextnlu() { if (++nlu >= size) nlu = 0; }
     MipsISA::PTE *lookup(Addr vpn, uint8_t asn) const;
-
-    mutable Stats::Scalar read_hits;
-    mutable Stats::Scalar read_misses;
-    mutable Stats::Scalar read_acv;
-    mutable Stats::Scalar read_accesses;
-    mutable Stats::Scalar write_hits;
-    mutable Stats::Scalar write_misses;
-    mutable Stats::Scalar write_acv;
-    mutable Stats::Scalar write_accesses;
-    Stats::Formula hits;
-    Stats::Formula misses;
-    Stats::Formula accesses;
 
   public:
     typedef MipsTLBParams Params;
@@ -110,20 +92,16 @@ class TLB : public BaseTLB
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;
 
-    void regStats() override;
-
     Fault translateAtomic(
             const RequestPtr &req, ThreadContext *tc, Mode mode) override;
     void translateTiming(
             const RequestPtr &req, ThreadContext *tc,
             Translation *translation, Mode mode) override;
+    Fault translateFunctional(
+            const RequestPtr &req, ThreadContext *tc, Mode mode) override;
     Fault finalizePhysical(
             const RequestPtr &req,
             ThreadContext *tc, Mode mode) const override;
-
-  private:
-    Fault translateInst(const RequestPtr &req, ThreadContext *tc);
-    Fault translateData(const RequestPtr &req, ThreadContext *tc, bool write);
 };
 
 }

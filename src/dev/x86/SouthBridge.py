@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
 from m5.params import *
 from m5.proxy import *
@@ -36,7 +34,6 @@ from m5.objects.I8254 import I8254
 from m5.objects.I8259 import I8259
 from m5.objects.Ide import IdeController
 from m5.objects.PcSpeaker import PcSpeaker
-from m5.objects.X86IntPin import X86IntLine
 from m5.SimObject import SimObject
 
 def x86IOAddress(port):
@@ -87,31 +84,28 @@ class SouthBridge(SimObject):
     ide.LegacyIOBase = x86IOAddress(0)
 
     def attachIO(self, bus, dma_ports):
-        # Route interupt signals
-        self.int_lines = \
-          [X86IntLine(source=self.pic1.output, sink=self.io_apic.pin(0)),
-           X86IntLine(source=self.pic2.output, sink=self.pic1.pin(2)),
-           X86IntLine(source=self.cmos.int_pin, sink=self.pic2.pin(0)),
-           X86IntLine(source=self.pit.int_pin, sink=self.pic1.pin(0)),
-           X86IntLine(source=self.pit.int_pin, sink=self.io_apic.pin(2)),
-           X86IntLine(source=self.keyboard.keyboard_int_pin,
-                      sink=self.io_apic.pin(1)),
-           X86IntLine(source=self.keyboard.mouse_int_pin,
-                      sink=self.io_apic.pin(12))]
+        # Route interrupt signals
+        self.pic1.output = self.io_apic.inputs[0]
+        self.pic2.output = self.pic1.inputs[2]
+        self.cmos.int_pin = self.pic2.inputs[0]
+        self.pit.int_pin = self.pic1.inputs[0]
+        self.pit.int_pin = self.io_apic.inputs[2]
+        self.keyboard.keyboard_int_pin = self.io_apic.inputs[1]
+        self.keyboard.mouse_int_pin = self.io_apic.inputs[12]
         # Tell the devices about each other
         self.pic1.slave = self.pic2
         self.speaker.i8254 = self.pit
         self.io_apic.external_int_pic = self.pic1
         # Connect to the bus
-        self.cmos.pio = bus.master
-        self.dma1.pio = bus.master
-        self.ide.pio = bus.master
+        self.cmos.pio = bus.mem_side_ports
+        self.dma1.pio = bus.mem_side_ports
+        self.ide.pio = bus.mem_side_ports
         if dma_ports.count(self.ide.dma) == 0:
-                self.ide.dma = bus.slave
-        self.keyboard.pio = bus.master
-        self.pic1.pio = bus.master
-        self.pic2.pio = bus.master
-        self.pit.pio = bus.master
-        self.speaker.pio = bus.master
-        self.io_apic.pio = bus.master
-        self.io_apic.int_master = bus.slave
+                self.ide.dma = bus.cpu_side_ports
+        self.keyboard.pio = bus.mem_side_ports
+        self.pic1.pio = bus.mem_side_ports
+        self.pic2.pio = bus.mem_side_ports
+        self.pit.pio = bus.mem_side_ports
+        self.speaker.pio = bus.mem_side_ports
+        self.io_apic.pio = bus.mem_side_ports
+        self.io_apic.int_requestor = bus.cpu_side_ports

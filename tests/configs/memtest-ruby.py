@@ -24,8 +24,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ron Dreslinski
 
 import m5
 from m5.objects import *
@@ -65,7 +63,7 @@ nb_cores = 8
 
 # ruby does not support atomic, functional, or uncacheable accesses
 cpus = [ MemTest(percent_functional=50,
-                 percent_uncacheable=0, suppress_func_warnings=True) \
+                 percent_uncacheable=0, suppress_func_errors=True) \
          for i in range(nb_cores) ]
 
 # overwrite options.num_cpus with the nb_cores value

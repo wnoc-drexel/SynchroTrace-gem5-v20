@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include <gtest/gtest.h>
@@ -42,6 +40,25 @@
 #include "base/coroutine.hh"
 
 using namespace m5;
+
+/**
+ * This test is checking if the Coroutine, once it's created
+ * it doesn't start since the second argument of the constructor
+ * (run_coroutine) is set to false
+ */
+TEST(Coroutine, Unstarted)
+{
+    auto yielding_task =
+    [] (Coroutine<void, void>::CallerType& yield)
+    {
+        yield();
+    };
+
+    const bool start_upon_creation = false;
+    Coroutine<void, void> coro(yielding_task, start_upon_creation);
+
+    ASSERT_FALSE(coro.started());
+}
 
 /**
  * This test is checking if the Coroutine, once it yields

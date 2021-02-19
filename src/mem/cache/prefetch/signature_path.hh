@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
  /**
@@ -49,7 +47,9 @@
 
 struct SignaturePathPrefetcherParams;
 
-class SignaturePathPrefetcher : public QueuedPrefetcher
+namespace Prefetcher {
+
+class SignaturePath : public Queued
 {
   protected:
     /** Signature type */
@@ -99,12 +99,16 @@ class SignaturePathPrefetcher : public QueuedPrefetcher
         /** use counter, used by SPPv2 */
         SatCounter counter;
         PatternEntry(size_t num_strides, unsigned counter_bits)
-            : strideEntries(num_strides, counter_bits), counter(counter_bits)
-        {}
+          : TaggedEntry(), strideEntries(num_strides, counter_bits),
+            counter(counter_bits)
+        {
+        }
 
         /** Reset the entries to their initial values */
-        void reset() override
+        void
+        invalidate() override
         {
+            TaggedEntry::invalidate();
             for (auto &entry : strideEntries) {
                 entry.counter.reset();
                 entry.stride = 0;
@@ -275,10 +279,13 @@ class SignaturePathPrefetcher : public QueuedPrefetcher
     }
 
   public:
-    SignaturePathPrefetcher(const SignaturePathPrefetcherParams* p);
-    ~SignaturePathPrefetcher() {}
+    SignaturePath(const SignaturePathPrefetcherParams* p);
+    ~SignaturePath() = default;
+
     void calculatePrefetch(const PrefetchInfo &pfi,
                            std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
 
 #endif//__MEM_CACHE_PREFETCH_SIGNATURE_PATH_HH__

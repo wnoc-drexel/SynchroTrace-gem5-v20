@@ -24,10 +24,9 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
+#include <gtest/gtest-spi.h>
 #include <gtest/gtest.h>
 
 #include <utility>
@@ -93,6 +92,23 @@ TEST(SatCounterTest, SaturationPercentile)
         const double saturation = value / max_value;
         ASSERT_DOUBLE_EQ(counter.calcSaturation(), saturation);
     }
+    ASSERT_TRUE(counter.isSaturated());
+}
+
+/**
+ * Test abrupt saturation.
+ */
+TEST(SatCounterTest, Saturate)
+{
+    const unsigned bits = 3;
+    const unsigned max_value = (1 << bits) - 1;
+    SatCounter counter(bits);
+    counter++;
+    ASSERT_FALSE(counter.isSaturated());
+
+    // Make sure the value added is what was missing to saturate
+    const unsigned diff = counter.saturate();
+    ASSERT_EQ(diff, max_value - 1);
     ASSERT_TRUE(counter.isSaturated());
 }
 
@@ -167,6 +183,15 @@ TEST(SatCounterTest, Shift)
     ASSERT_EQ(counter, value);
     counter >>= saturated_counter;
     ASSERT_EQ(counter, 0);
+
+    // Make sure the counters cannot be shifted by negative numbers, since
+    // that is undefined behaviour. As these tests depend on asserts failing,
+    // these tests are only functional if `TRACING_ON == 1`, when gem5 is
+    // compiled as `debug` or `opt`.
+    #if TRACING_ON
+    ASSERT_DEATH(counter >>= -1, "");
+    ASSERT_DEATH(counter <<= -1, "");
+    #endif
 }
 
 /**
@@ -300,5 +325,38 @@ TEST(SatCounterTest, AddSubAssignment)
     ASSERT_EQ(counter, value);
     counter -= saturated_counter;
     ASSERT_EQ(counter, 0);
+}
+
+/**
+ * Test add-assignment and subtract assignment using negative numbers.
+ */
+TEST(SatCounterTest, NegativeAddSubAssignment)
+{
+    const unsigned bits = 3;
+    const unsigned max_value = (1 << bits) - 1;
+    SatCounter counter(bits, max_value);
+    int value = max_value;
+
+    // Test add-assignment for a few negative values until zero is reached
+    counter += -2;
+    value += -2;
+    ASSERT_EQ(counter, value);
+    counter += -3;
+    value += -3;
+    ASSERT_EQ(counter, value);
+    counter += (int)-max_value;
+    value = 0;
+    ASSERT_EQ(counter, value);
+
+    // Test subtract-assignment for a few negative values until saturation
+    counter -= -2;
+    value -= -2;
+    ASSERT_EQ(counter, value);
+    counter -= -3;
+    value -= -3;
+    ASSERT_EQ(counter, value);
+    counter -= (int)-max_value;
+    value = max_value;
+    ASSERT_EQ(counter, value);
 }
 

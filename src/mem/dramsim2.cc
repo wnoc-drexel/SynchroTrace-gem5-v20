@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
  */
 
 #include "mem/dramsim2.hh"
@@ -70,9 +68,7 @@ DRAMSim2::DRAMSim2(const Params* p) :
 
     // Register a callback to compensate for the destructor not
     // being called. The callback prints the DRAMSim2 stats.
-    Callback* cb = new MakeCallback<DRAMSim2Wrapper,
-        &DRAMSim2Wrapper::printStats>(wrapper);
-    registerExitCallback(cb);
+    registerExitCallback([this]() { wrapper.printStats(); });
 }
 
 void
@@ -258,7 +254,7 @@ DRAMSim2::accessAndRespond(PacketPtr pkt)
     // response
     access(pkt);
 
-    // turn packet around to go back to requester if response expected
+    // turn packet around to go back to requestor if response expected
     if (needsResponse) {
         // access already turned the packet into a response
         assert(pkt->isResponse());
@@ -356,7 +352,7 @@ DRAMSim2::drain()
 
 DRAMSim2::MemoryPort::MemoryPort(const std::string& _name,
                                  DRAMSim2& _memory)
-    : SlavePort(_name, &_memory), memory(_memory)
+    : ResponsePort(_name, &_memory), memory(_memory)
 { }
 
 AddrRangeList

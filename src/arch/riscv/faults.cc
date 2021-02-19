@@ -2,6 +2,7 @@
  * Copyright (c) 2016 RISC-V Foundation
  * Copyright (c) 2016 The University of Virginia
  * Copyright (c) 2018 TU Dresden
+ * Copyright (c) 2020 Barkhausen Institut
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,18 +27,17 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Alec Roelke
- *          Robert Scheffel
  */
+
 #include "arch/riscv/faults.hh"
 
+#include "arch/riscv/fs_workload.hh"
 #include "arch/riscv/isa.hh"
 #include "arch/riscv/registers.hh"
-#include "arch/riscv/system.hh"
 #include "arch/riscv/utility.hh"
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
+#include "debug/Fault.hh"
 #include "sim/debug.hh"
 #include "sim/full_system.hh"
 
@@ -54,6 +54,9 @@ void
 RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
 {
     PCState pcState = tc->pcState();
+
+    DPRINTFS(Fault, tc->getCpuPtr(), "Fault (%s) at PC: %s\n",
+             name(), pcState);
 
     if (FullSystem) {
         PrivilegeMode pp = (PrivilegeMode)tc->readMiscReg(MISCREG_PRV);
@@ -127,7 +130,7 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
         tc->setMiscReg(MISCREG_STATUS, status);
 
         // Set PC to fault handler address
-        Addr addr = tc->readMiscReg(tvec) >> 2;
+        Addr addr = mbits(tc->readMiscReg(tvec), 63, 2);
         if (isInterrupt() && bits(tc->readMiscReg(tvec), 1, 0) == 1)
             addr += 4 * _code;
         pcState.set(addr);
@@ -148,7 +151,8 @@ void Reset::invoke(ThreadContext *tc, const StaticInstPtr &inst)
     tc->setMiscReg(MISCREG_MCAUSE, 0);
 
     // Advance the PC to the implementation-defined reset vector
-    PCState pc = static_cast<RiscvSystem *>(tc->getSystemPtr())->resetVect();
+    auto workload = dynamic_cast<FsWorkload *>(tc->getSystemPtr()->workload);
+    PCState pc = workload->resetVect();
     tc->pcState(pc);
 }
 
@@ -190,8 +194,7 @@ BreakpointFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 void
 SyscallFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 {
-    Fault *fault = NoFault;
-    tc->syscall(tc->readIntReg(SyscallNumReg), fault);
+    tc->syscall();
 }
 
 } // namespace RiscvISA

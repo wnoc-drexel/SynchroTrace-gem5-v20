@@ -35,9 +35,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
-#          Brad Beckmann
 
 from m5.params import *
 from m5.proxy import *
@@ -69,5 +66,8 @@ class RubyController(ClockedObject):
         Param.Cycles(1, "Default latency for requests added to the " \
                         "mandatory queue on top-level controllers")
 
-    memory = MasterPort("Port for attaching a memory controller")
+    memory_out_port = RequestPort("Port for attaching a memory controller")
+    memory = DeprecatedParam(memory_out_port, "The request port for Ruby "
+        "memory output to the main memory is now called `memory_out_port`")
+
     system = Param.System(Parent.any, "system object parameter")

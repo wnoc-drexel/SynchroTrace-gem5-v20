@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "cpu/kvm/x86_cpu.hh"
@@ -38,6 +36,8 @@
 
 #include "arch/registers.hh"
 #include "arch/x86/cpuid.hh"
+#include "arch/x86/faults.hh"
+#include "arch/x86/interrupts.hh"
 #include "arch/x86/regs/msr.hh"
 #include "arch/x86/utility.hh"
 #include "cpu/kvm/base.hh"
@@ -1141,8 +1141,8 @@ X86KvmCPU::deliverInterrupts()
         // they are getInterrupt() and updateIntrInfo() are called
         // atomically.
         EventQueue::ScopedMigration migrate(interrupts[0]->eventQueue());
-        fault = interrupts[0]->getInterrupt(tc);
-        interrupts[0]->updateIntrInfo(tc);
+        fault = interrupts[0]->getInterrupt();
+        interrupts[0]->updateIntrInfo();
     }
 
     X86Interrupt *x86int(dynamic_cast<X86Interrupt *>(fault.get()));
@@ -1185,8 +1185,10 @@ X86KvmCPU::kvmRun(Tick ticks)
 {
     struct kvm_run &kvm_run(*getKvmRunState());
 
-    if (interrupts[0]->checkInterruptsRaw()) {
-        if (interrupts[0]->hasPendingUnmaskable()) {
+    auto *lapic = dynamic_cast<X86ISA::Interrupts *>(interrupts[0]);
+
+    if (lapic->checkInterruptsRaw()) {
+        if (lapic->hasPendingUnmaskable()) {
             DPRINTF(KvmInt,
                     "Delivering unmaskable interrupt.\n");
             syncThreadContext();
@@ -1198,7 +1200,7 @@ X86KvmCPU::kvmRun(Tick ticks)
             // the thread context and check if there are /really/
             // interrupts that should be delivered now.
             syncThreadContext();
-            if (interrupts[0]->checkInterrupts(tc)) {
+            if (lapic->checkInterrupts()) {
                 DPRINTF(KvmInt,
                         "M5 has pending interrupts, delivering interrupt.\n");
 
@@ -1349,7 +1351,7 @@ X86KvmCPU::handleKvmExitIO()
     for (int i = 0; i < count; ++i) {
         RequestPtr io_req = std::make_shared<Request>(
             pAddr, kvm_run.io.size,
-            Request::UNCACHEABLE, dataMasterId());
+            Request::UNCACHEABLE, dataRequestorId());
 
         io_req->setContext(tc->contextId());
 

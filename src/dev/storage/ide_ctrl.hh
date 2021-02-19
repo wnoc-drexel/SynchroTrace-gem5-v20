@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Schultz
- *          Miguel Serrano
  */
 
 /** @file
@@ -92,8 +89,13 @@ class IdeController : public PciDevice
             uint32_t bmidtp;
         } bmiRegs;
 
-        /** IDE disks connected to this controller */
-        IdeDisk *master, *slave;
+        /** IDE disks connected to this controller
+         * For more details about device0 and device1 see:
+         * https://en.wikipedia.org/wiki/Parallel_ATA
+         * #Multiple_devices_on_a_cable
+         *
+        */
+        IdeDisk *device0, *device1;
 
         /** Currently selected disk */
         IdeDisk *selected;
@@ -101,10 +103,10 @@ class IdeController : public PciDevice
         bool selectBit;
 
         void
-        select(bool selSlave)
+        select(bool select_device_1)
         {
-            selectBit = selSlave;
-            selected = selectBit ? slave : master;
+            selectBit = select_device_1;
+            selected = selectBit ? device1 : device0;
         }
 
         void accessCommand(Addr offset, int size, uint8_t *data, bool read);

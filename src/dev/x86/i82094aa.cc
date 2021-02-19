@@ -24,11 +24,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "dev/x86/i82094aa.hh"
+
+#include <list>
 
 #include "arch/x86/interrupts.hh"
 #include "arch/x86/intmessage.hh"
@@ -40,8 +40,9 @@
 #include "sim/system.hh"
 
 X86ISA::I82094AA::I82094AA(Params *p)
-    : BasicPioDevice(p, 20), IntDevice(this, p->int_latency),
-      extIntPic(p->external_int_pic), lowestPriorityOffset(0)
+    : BasicPioDevice(p, 20), extIntPic(p->external_int_pic),
+      lowestPriorityOffset(0),
+      intRequestPort(name() + ".int_request", this, this, p->int_latency)
 {
     // This assumes there's only one I/O APIC in the system and since the apic
     // id is stored in a 8-bit field with 0xff meaning broadcast, the id must
@@ -57,43 +58,33 @@ X86ISA::I82094AA::I82094AA(Params *p)
         redirTable[i] = entry;
         pinStates[i] = false;
     }
+
+    for (int i = 0; i < p->port_inputs_connection_count; i++)
+        inputs.push_back(new IntSinkPin<I82094AA>(
+                    csprintf("%s.inputs[%d]", name(), i), i, this));
 }
 
 void
 X86ISA::I82094AA::init()
 {
-    // The io apic must register its address ranges on both its pio port
-    // via the piodevice init() function and its int port that it inherited
-    // from IntDevice.  Note IntDevice is not a SimObject itself.
-
+    // The io apic must register its address range with its pio port via
+    // the piodevice init() function.
     BasicPioDevice::init();
-    IntDevice::init();
+
+    // If the request port isn't connected, we can't send interrupts anywhere.
+    panic_if(!intRequestPort.isConnected(),
+            "Int port not connected to anything!");
 }
 
 Port &
 X86ISA::I82094AA::getPort(const std::string &if_name, PortID idx)
 {
-    if (if_name == "int_master")
-        return intMasterPort;
-    return BasicPioDevice::getPort(if_name, idx);
-}
-
-AddrRangeList
-X86ISA::I82094AA::getIntAddrRange() const
-{
-    AddrRangeList ranges;
-    ranges.push_back(RangeEx(x86InterruptAddress(initialApicId, 0),
-                             x86InterruptAddress(initialApicId, 0) +
-                             PhysAddrAPICRangeSize));
-    return ranges;
-}
-
-Tick
-X86ISA::I82094AA::recvResponse(PacketPtr pkt)
-{
-    // Packet instantiated calling sendMessage() in signalInterrupt()
-    delete pkt;
-    return 0;
+    if (if_name == "int_requestor")
+        return intRequestPort;
+    if (if_name == "inputs")
+        return *inputs.at(idx);
+    else
+        return BasicPioDevice::getPort(if_name, idx);
 }
 
 Tick
@@ -206,8 +197,8 @@ X86ISA::I82094AA::signalInterrupt(int line)
         message.destMode = entry.destMode;
         message.level = entry.polarity;
         message.trigger = entry.trigger;
-        ApicList apics;
-        int numContexts = sys->numContexts();
+        std::list<int> apics;
+        int numContexts = sys->threads.size();
         if (message.destMode == 0) {
             if (message.deliveryMode == DeliveryMode::LowestPriority) {
                 panic("Lowest priority delivery mode from the "
@@ -223,8 +214,9 @@ X86ISA::I82094AA::signalInterrupt(int line)
             }
         } else {
             for (int i = 0; i < numContexts; i++) {
-                Interrupts *localApic = sys->getThreadContext(i)->
+                BaseInterrupts *base_int = sys->threads[i]->
                     getCpuPtr()->getInterruptController(0);
+                auto *localApic = dynamic_cast<Interrupts *>(base_int);
                 if ((localApic->readReg(APIC_LOGICAL_DESTINATION) >> 24) &
                         message.destination) {
                     apics.push_back(localApic->getInitialApicId());
@@ -238,7 +230,7 @@ X86ISA::I82094AA::signalInterrupt(int line)
                 // through the set of APICs selected above.
                 uint64_t modOffset = lowestPriorityOffset % apics.size();
                 lowestPriorityOffset++;
-                ApicList::iterator apicIt = apics.begin();
+                auto apicIt = apics.begin();
                 while (modOffset--) {
                     apicIt++;
                     assert(apicIt != apics.end());
@@ -248,7 +240,10 @@ X86ISA::I82094AA::signalInterrupt(int line)
                 apics.push_back(selected);
             }
         }
-        intMasterPort.sendMessage(apics, message, sys->isTimingMode());
+        for (auto id: apics) {
+            PacketPtr pkt = buildIntTriggerPacket(id, message);
+            intRequestPort.sendMessage(pkt, sys->isTimingMode());
+        }
     }
 }
 

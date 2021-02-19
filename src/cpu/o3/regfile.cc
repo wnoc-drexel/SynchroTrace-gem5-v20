@@ -37,10 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Gabe Black
- *          Steve Reinhardt
  */
 
 #include "cpu/o3/regfile.hh"
@@ -184,8 +180,8 @@ PhysRegFile::initFreeList(UnifiedFreeList *freeList)
     freeList->addRegs(ccRegIds.begin(), ccRegIds.end());
 }
 
-auto
-PhysRegFile::getRegElemIds(PhysRegIdPtr reg) -> IdRange
+PhysRegFile::IdRange
+PhysRegFile::getRegElemIds(PhysRegIdPtr reg)
 {
     panic_if(!reg->isVectorPhysReg(),
             "Trying to get elems of a %s register", reg->className());
@@ -195,8 +191,8 @@ PhysRegFile::getRegElemIds(PhysRegIdPtr reg) -> IdRange
                 vecElemIds.begin() + (idx+1) * NumVecElemPerVecReg);
 }
 
-auto
-PhysRegFile::getRegIds(RegClass cls) -> IdRange
+PhysRegFile::IdRange
+PhysRegFile::getRegIds(RegClass cls)
 {
     switch (cls)
     {

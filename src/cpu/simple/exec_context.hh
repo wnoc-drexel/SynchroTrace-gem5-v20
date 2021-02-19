@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 ARM Limited
+ * Copyright (c) 2014-2018, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Andreas Sandberg
- *          Mitch Hayenga
  */
 
 #ifndef __CPU_SIMPLE_EXEC_CONTEXT_HH__
@@ -437,42 +433,49 @@ class SimpleExecContext : public ExecContext {
     Fault
     readMem(Addr addr, uint8_t *data, unsigned int size,
             Request::Flags flags,
-            const std::vector<bool>& byteEnable = std::vector<bool>())
+            const std::vector<bool>& byte_enable = std::vector<bool>())
         override
     {
-        return cpu->readMem(addr, data, size, flags, byteEnable);
+        assert(byte_enable.empty() || byte_enable.size() == size);
+        return cpu->readMem(addr, data, size, flags, byte_enable);
     }
 
     Fault
     initiateMemRead(Addr addr, unsigned int size,
                     Request::Flags flags,
-                    const std::vector<bool>& byteEnable = std::vector<bool>())
+                    const std::vector<bool>& byte_enable = std::vector<bool>())
         override
     {
-        return cpu->initiateMemRead(addr, size, flags, byteEnable);
+        assert(byte_enable.empty() || byte_enable.size() == size);
+        return cpu->initiateMemRead(addr, size, flags, byte_enable);
     }
 
     Fault
     writeMem(uint8_t *data, unsigned int size, Addr addr,
              Request::Flags flags, uint64_t *res,
-             const std::vector<bool>& byteEnable = std::vector<bool>())
+             const std::vector<bool>& byte_enable = std::vector<bool>())
         override
     {
-        assert(byteEnable.empty() || byteEnable.size() == size);
-        return cpu->writeMem(data, size, addr, flags, res, byteEnable);
+        assert(byte_enable.empty() || byte_enable.size() == size);
+        return cpu->writeMem(data, size, addr, flags, res, byte_enable);
     }
 
     Fault amoMem(Addr addr, uint8_t *data, unsigned int size,
-                 Request::Flags flags, AtomicOpFunctor *amo_op) override
+                 Request::Flags flags, AtomicOpFunctorPtr amo_op) override
     {
-        return cpu->amoMem(addr, data, size, flags, amo_op);
+        return cpu->amoMem(addr, data, size, flags, std::move(amo_op));
     }
 
     Fault initiateMemAMO(Addr addr, unsigned int size,
                          Request::Flags flags,
-                         AtomicOpFunctor *amo_op) override
+                         AtomicOpFunctorPtr amo_op) override
     {
-        return cpu->initiateMemAMO(addr, size, flags, amo_op);
+        return cpu->initiateMemAMO(addr, size, flags, std::move(amo_op));
+    }
+
+    Fault initiateHtmCmd(Request::Flags flags) override
+    {
+        return cpu->initiateHtmCmd(flags);
     }
 
     /**
@@ -496,17 +499,10 @@ class SimpleExecContext : public ExecContext {
     /**
      * Executes a syscall specified by the callnum.
      */
-    void
-    syscall(int64_t callnum, Fault *fault) override
-    {
-        if (FullSystem)
-            panic("Syscall emulation isn't available in FS mode.");
-
-        thread->syscall(callnum, fault);
-    }
+    void syscall() override { thread->syscall(); }
 
     /** Returns a pointer to the ThreadContext. */
-    ThreadContext *tcBase() override { return thread->getTC(); }
+    ThreadContext *tcBase() const override { return thread->getTC(); }
 
     bool
     readPredicate() const override
@@ -534,6 +530,31 @@ class SimpleExecContext : public ExecContext {
     setMemAccPredicate(bool val) override
     {
         thread->setMemAccPredicate(val);
+    }
+
+    uint64_t
+    getHtmTransactionUid() const override
+    {
+        return tcBase()->getHtmCheckpointPtr()->getHtmUid();
+    }
+
+    uint64_t
+    newHtmTransactionUid() const override
+    {
+        return tcBase()->getHtmCheckpointPtr()->newHtmUid();
+    }
+
+    bool
+    inHtmTransactionalState() const override
+    {
+        return (getHtmTransactionalDepth() > 0);
+    }
+
+    uint64_t
+    getHtmTransactionalDepth() const override
+    {
+        assert(thread->htmTransactionStarts >= thread->htmTransactionStops);
+        return (thread->htmTransactionStarts - thread->htmTransactionStops);
     }
 
     /**

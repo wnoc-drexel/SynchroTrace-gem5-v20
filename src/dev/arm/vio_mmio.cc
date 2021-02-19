@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "dev/arm/vio_mmio.hh"
@@ -47,13 +45,12 @@
 MmioVirtIO::MmioVirtIO(const MmioVirtIOParams *params)
     : BasicPioDevice(params, params->pio_size),
       hostFeaturesSelect(0), guestFeaturesSelect(0), pageSize(0),
-      interruptStatus(0),
-      callbackKick(this), vio(*params->vio),
+      interruptStatus(0), vio(*params->vio),
       interrupt(params->interrupt->get())
 {
     fatal_if(!interrupt, "No MMIO VirtIO interrupt specified\n");
 
-    vio.registerKickCallback(&callbackKick);
+    vio.registerKickCallback([this]() { kick(); });
 }
 
 MmioVirtIO::~MmioVirtIO()

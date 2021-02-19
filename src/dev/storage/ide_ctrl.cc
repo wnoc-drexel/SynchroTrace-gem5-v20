@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Schultz
- *          Ali Saidi
- *          Miguel Serrano
  */
 
 #include "dev/storage/ide_ctrl.hh"
@@ -81,7 +77,7 @@ IdeController::Channel::Channel(
         string newName, Addr _cmdSize, Addr _ctrlSize) :
     _name(newName),
     cmdAddr(0), cmdSize(_cmdSize), ctrlAddr(0), ctrlSize(_ctrlSize),
-    master(NULL), slave(NULL), selected(NULL)
+    device0(NULL), device1(NULL), selected(NULL)
 {
     bmiRegs.reset();
     bmiRegs.status.dmaCap0 = 1;
@@ -109,22 +105,22 @@ IdeController::IdeController(Params *p)
             continue;
         switch (i) {
           case 0:
-            primary.master = params()->disks[0];
+            primary.device0 = params()->disks[0];
             break;
           case 1:
-            primary.slave = params()->disks[1];
+            primary.device1 = params()->disks[1];
             break;
           case 2:
-            secondary.master = params()->disks[2];
+            secondary.device0 = params()->disks[2];
             break;
           case 3:
-            secondary.slave = params()->disks[3];
+            secondary.device1 = params()->disks[3];
             break;
           default:
             panic("IDE controllers support a maximum "
                   "of 4 devices attached!\n");
         }
-        params()->disks[i]->setController(this);
+        params()->disks[i]->setController(this, sys->getPageBytes());
     }
 
     primary.select(false);
@@ -160,9 +156,9 @@ void
 IdeController::setDmaComplete(IdeDisk *disk)
 {
     Channel *channel;
-    if (disk == primary.master || disk == primary.slave) {
+    if (disk == primary.device0 || disk == primary.device1) {
         channel = &primary;
-    } else if (disk == secondary.master || disk == secondary.slave) {
+    } else if (disk == secondary.device0 || disk == secondary.device1) {
         channel = &secondary;
     } else {
         panic("Unable to find disk based on pointer %#x\n", disk);

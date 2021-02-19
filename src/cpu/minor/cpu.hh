@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -97,7 +95,7 @@ class MinorCPU : public BaseCPU
   public:
     /** Provide a non-protected base class for Minor's Ports as derived
      *  classes are created by Fetch1 and Execute */
-    class MinorCPUPort : public MasterPort
+    class MinorCPUPort : public RequestPort
     {
       public:
         /** The enclosing cpu */
@@ -105,7 +103,7 @@ class MinorCPU : public BaseCPU
 
       public:
         MinorCPUPort(const std::string& name_, MinorCPU &cpu_)
-            : MasterPort(name_, &cpu_), cpu(cpu_)
+            : RequestPort(name_, &cpu_), cpu(cpu_)
         { }
 
     };
@@ -114,10 +112,10 @@ class MinorCPU : public BaseCPU
     Enums::ThreadPolicy threadPolicy;
   protected:
      /** Return a reference to the data port. */
-    MasterPort &getDataPort() override;
+    Port &getDataPort() override;
 
     /** Return a reference to the instruction port. */
-    MasterPort &getInstPort() override;
+    Port &getInstPort() override;
 
   public:
     MinorCPU(MinorCPUParams *params);
@@ -129,8 +127,6 @@ class MinorCPU : public BaseCPU
     void init() override;
     void startup() override;
     void wakeup(ThreadID tid) override;
-
-    Addr dbg_vtophys(Addr addr);
 
     /** Processor-specific statistics */
     Minor::MinorStats stats;

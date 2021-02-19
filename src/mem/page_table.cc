@@ -25,10 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Ron Dreslinski
- *          Ali Saidi
  */
 
 /**
@@ -172,7 +168,8 @@ EmulationPageTable::translate(const RequestPtr &req)
 void
 EmulationPageTable::serialize(CheckpointOut &cp) const
 {
-    paramOut(cp, "ptable.size", pTable.size());
+    ScopedCheckpointSection sec(cp, "ptable");
+    paramOut(cp, "size", pTable.size());
 
     PTable::size_type count = 0;
     for (auto &pte : pTable) {
@@ -189,7 +186,8 @@ void
 EmulationPageTable::unserialize(CheckpointIn &cp)
 {
     int count;
-    paramIn(cp, "ptable.size", count);
+    ScopedCheckpointSection sec(cp, "ptable");
+    paramIn(cp, "size", count);
 
     for (int i = 0; i < count; ++i) {
         ScopedCheckpointSection sec(cp, csprintf("Entry%d", i));

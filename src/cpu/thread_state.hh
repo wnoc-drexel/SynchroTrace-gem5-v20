@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_THREAD_STATE_HH__
@@ -34,21 +32,10 @@
 #include "arch/types.hh"
 #include "config/the_isa.hh"
 #include "cpu/base.hh"
-#include "cpu/profile.hh"
 #include "cpu/thread_context.hh"
 #include "sim/process.hh"
 
-class EndQuiesceEvent;
-class FunctionProfile;
-class ProfileNode;
-namespace Kernel {
-    class Statistics;
-}
-
 class Checkpoint;
-
-class FSTranslatingPortProxy;
-class SETranslatingPortProxy;
 
 /**
  *  Struct for holding general thread state that is needed across CPU
@@ -91,36 +78,13 @@ struct ThreadState : public Serializable {
      */
     void initMemProxies(ThreadContext *tc);
 
-    void dumpFuncProfile();
-
-    EndQuiesceEvent *getQuiesceEvent() { return quiesceEvent; }
-
-    void profileClear();
-
-    void profileSample();
-
-    Kernel::Statistics *getKernelStats() { return kernelStats; }
-
     PortProxy &getPhysProxy();
 
     PortProxy &getVirtProxy();
 
     Process *getProcessPtr() { return process; }
 
-    void setProcessPtr(Process *p)
-    {
-        process = p;
-        /**
-         * When the process pointer changes while operating in SE Mode,
-         * the se translating port proxy needs to be reinitialized since it
-         * holds a pointer to the process class.
-         */
-        if (virtProxy) {
-            delete virtProxy;
-            virtProxy = NULL;
-            initMemProxies(NULL);
-        }
-    }
+    void setProcessPtr(Process *p) { process = p; }
 
     /** Reads the number of instructions functionally executed and
      * committed.
@@ -142,14 +106,19 @@ struct ThreadState : public Serializable {
 
     /** Number of instructions committed. */
     Counter numInst;
-    /** Stat for number instructions committed. */
-    Stats::Scalar numInsts;
-    /** Number of ops (including micro ops) committed. */
+     /** Number of ops (including micro ops) committed. */
     Counter numOp;
-    /** Stat for number ops (including micro ops) committed. */
-    Stats::Scalar numOps;
-    /** Stat for number of memory references. */
-    Stats::Scalar numMemRefs;
+    // Defining the stat group
+    struct ThreadStateStats : public Stats::Group
+    {
+        ThreadStateStats(BaseCPU *cpu, const ThreadID& thread);
+        /** Stat for number instructions committed. */
+        Stats::Scalar numInsts;
+        /** Stat for number ops (including micro ops) committed. */
+        Stats::Scalar numOps;
+        /** Stat for number of memory references. */
+        Stats::Scalar numMemRefs;
+    } threadStats;
 
     /** Number of simulated loads, used for tracking events based on
      * the number of loads committed.
@@ -177,14 +146,6 @@ struct ThreadState : public Serializable {
 
     /** Last time suspend was called on this thread. */
     Tick lastSuspend;
-
-  public:
-    FunctionProfile *profile;
-    ProfileNode *profileNode;
-    Addr profilePC;
-    EndQuiesceEvent *quiesceEvent;
-
-    Kernel::Statistics *kernelStats;
 
   protected:
     Process *process;

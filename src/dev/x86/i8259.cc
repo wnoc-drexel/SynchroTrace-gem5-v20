@@ -24,27 +24,48 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "dev/x86/i8259.hh"
 
 #include "base/bitfield.hh"
+#include "base/trace.hh"
 #include "debug/I8259.hh"
 #include "dev/x86/i82094aa.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 
 X86ISA::I8259::I8259(Params * p)
-    : BasicPioDevice(p, 2), IntDevice(this),
-      latency(p->pio_latency), output(p->output),
+    : BasicPioDevice(p, 2),
+      latency(p->pio_latency),
       mode(p->mode), slave(p->slave),
       IRR(0), ISR(0), IMR(0),
       readIRR(true), initControlWord(0), autoEOI(false)
 {
-    for (int i = 0; i < NumLines; i++)
-        pinStates[i] = false;
+    for (int i = 0; i < p->port_output_connection_count; i++) {
+        output.push_back(new IntSourcePin<I8259>(
+                    csprintf("%s.output[%d]", name(), i), i, this));
+    }
+
+    int in_count = p->port_inputs_connection_count;
+    panic_if(in_count >= NumLines,
+            "I8259 only supports 8 inputs, but there are %d.", in_count);
+    for (int i = 0; i < in_count; i++) {
+        inputs.push_back(new IntSinkPin<I8259>(
+                    csprintf("%s.inputs[%d]", name(), i), i, this));
+    }
+
+    for (bool &state: pinStates)
+        state = false;
+}
+
+void
+X86ISA::I8259::init()
+{
+    BasicPioDevice::init();
+
+    for (auto *input: inputs)
+        pinStates[input->getId()] = input->state();
 }
 
 Tick
@@ -170,7 +191,8 @@ X86ISA::I8259::write(PacketPtr pkt)
           case 0x2:
             DPRINTF(I8259, "Received initialization command word 3.\n");
             if (mode == Enums::I8259Master) {
-                DPRINTF(I8259, "Slaves attached to IRQs:%s%s%s%s%s%s%s%s\n",
+                DPRINTF(I8259, "Responders attached to "
+                        "IRQs:%s%s%s%s%s%s%s%s\n",
                         bits(val, 0) ? " 0" : "",
                         bits(val, 1) ? " 1" : "",
                         bits(val, 2) ? " 2" : "",
@@ -181,7 +203,7 @@ X86ISA::I8259::write(PacketPtr pkt)
                         bits(val, 7) ? " 7" : "");
                 cascadeBits = val;
             } else {
-                DPRINTF(I8259, "Slave ID is %d.\n", val & mask(3));
+                DPRINTF(I8259, "Responder ID is %d.\n", val & mask(3));
                 cascadeBits = val & mask(3);
             }
             if (expectICW4)
@@ -231,11 +253,13 @@ void
 X86ISA::I8259::requestInterrupt(int line)
 {
     if (bits(ISR, 7, line) == 0) {
-        if (output) {
+        if (!output.empty()) {
             DPRINTF(I8259, "Propogating interrupt.\n");
-            output->raise();
-            //XXX This is a hack.
-            output->lower();
+            for (auto *wire: output) {
+                wire->raise();
+                //XXX This is a hack.
+                wire->lower();
+            }
         } else {
             warn("Received interrupt but didn't have "
                     "anyone to tell about it.\n");
@@ -284,10 +308,10 @@ int
 X86ISA::I8259::getVector()
 {
     /*
-     * This code only handles one slave. Since that's how the PC platform
+     * This code only handles one responder. Since that's how the PC platform
      * always uses the 8259 PIC, there shouldn't be any need for more. If
-     * there -is- a need for more for some reason, "slave" can become a
-     * vector of slaves.
+     * there -is- a need for more for some reason, "responder" can become a
+     * vector of responders.
      */
     int line = findMsbSet(IRR);
     IRR &= ~(1 << line);
@@ -298,7 +322,7 @@ X86ISA::I8259::getVector()
         ISR |= 1 << line;
     }
     if (slave && bits(cascadeBits, line)) {
-        DPRINTF(I8259, "Interrupt was from slave who will "
+        DPRINTF(I8259, "Interrupt was from responder who will "
                 "provide the vector.\n");
         return slave->getVector();
     }

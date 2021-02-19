@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #include "dev/arm/smmu_v3_ptops.hh"
@@ -114,15 +112,15 @@ Addr
 V7LPageTableOps::walkMask(unsigned level) const
 {
     switch (level) {
-        case 1: return mask(39, 30);
-        case 2: return mask(39, 21);
-        case 3: return mask(39, 12);
+        case 1: return ~mask(30);
+        case 2: return ~mask(21);
+        case 3: return ~mask(12);
         default: panic("bad level %d", level);
     }
 }
 
 unsigned
-V7LPageTableOps::firstLevel() const
+V7LPageTableOps::firstLevel(uint8_t tsz) const
 {
     return 1;
 }
@@ -207,22 +205,127 @@ Addr
 V8PageTableOps4k::walkMask(unsigned level) const
 {
     switch (level) {
-        case 0: return mask(47, 39);
-        case 1: return mask(47, 30);
-        case 2: return mask(47, 21);
-        case 3: return mask(47, 12);
+        case 0: return ~mask(39);
+        case 1: return ~mask(30);
+        case 2: return ~mask(21);
+        case 3: return ~mask(12);
         default: panic("bad level %d", level);
     }
 }
 
 unsigned
-V8PageTableOps4k::firstLevel() const
+V8PageTableOps4k::firstLevel(uint8_t tsz) const
 {
-    return 0;
+    if (tsz >= 16 && tsz <= 24) return 0;
+    if (tsz >= 25 && tsz <= 33) return 1;
+    if (tsz >= 34 && tsz <= 39) return 2;
+
+    panic("Unsupported TnSZ: %d\n", tsz);
 }
 
 unsigned
 V8PageTableOps4k::lastLevel() const
+{
+    return 3;
+}
+
+bool
+V8PageTableOps16k::isValid(pte_t pte, unsigned level) const
+{
+    switch (level) {
+        case 0: return  pte & 0x1;
+        case 1: return  pte & 0x1;
+        case 2: return  pte & 0x1;
+        case 3: return (pte & 0x1) && (pte & 0x2);
+        default: panic("bad level %d", level);
+    }
+}
+
+bool
+V8PageTableOps16k::isLeaf(pte_t pte, unsigned level) const
+{
+    switch (level) {
+        case 0: return false;
+        case 1: return false;
+        case 2: return !(pte & 0x2);
+        case 3: return true;
+        default: panic("bad level %d", level);
+    }
+}
+
+bool
+V8PageTableOps16k::isWritable(pte_t pte, unsigned level, bool stage2) const
+{
+    return stage2 ? bits(pte, 7, 6) == 3 : bits(pte, 7) == 0;
+}
+
+Addr
+V8PageTableOps16k::nextLevelPointer(pte_t pte, unsigned level) const
+{
+    if (isLeaf(pte, level)) {
+        switch (level) {
+            // no level 0 here
+            case 1: return mbits(pte, 47, 36);
+            case 2: return mbits(pte, 47, 25);
+            case 3: return mbits(pte, 47, 14);
+            default: panic("bad level %d", level);
+        }
+    } else {
+        return mbits(pte, 47, 14);
+    }
+}
+
+Addr
+V8PageTableOps16k::index(Addr va, unsigned level) const
+{
+    switch (level) {
+        case 0: return bits(va, 47, 47) << 3; break;
+        case 1: return bits(va, 46, 36) << 3; break;
+        case 2: return bits(va, 35, 25) << 3; break;
+        case 3: return bits(va, 24, 14) << 3; break;
+        default: panic("bad level %d", level);
+    }
+}
+
+Addr
+V8PageTableOps16k::pageMask(pte_t pte, unsigned level) const
+{
+    switch (level) {
+        // no level 0 here
+        case 1: return ~mask(36);
+        // 16K granule supports contiguous entries also at L2; - 1G
+        case 2: return bits(pte, 52) ? ~mask(30) : ~mask(25);
+        // as well as at L3; - 2M
+        case 3: return bits(pte, 52) ? ~mask(21) : ~mask(14);
+        default: panic("bad level %d", level);
+    }
+}
+
+Addr
+V8PageTableOps16k::walkMask(unsigned level) const
+{
+    switch (level) {
+        case 0: return ~mask(47);
+        case 1: return ~mask(36);
+        case 2: return ~mask(25);
+        case 3: return ~mask(14);
+        default: panic("bad level %d", level);
+    }
+}
+
+unsigned
+V8PageTableOps16k::firstLevel(uint8_t tsz) const
+{
+    if (tsz == 16) return 0;
+    if (tsz >= 17 && tsz <= 27) return 1;
+    if (tsz >= 28 && tsz <= 38) return 2;
+    if (tsz == 39) return 3;
+
+    panic("Unsupported TnSZ: %d\n", tsz);
+}
+
+unsigned
+V8PageTableOps16k::lastLevel() const
 {
     return 3;
 }
@@ -296,17 +399,21 @@ Addr
 V8PageTableOps64k::walkMask(unsigned level) const
 {
     switch (level) {
-        case 1: return mask(47, 42);
-        case 2: return mask(47, 29);
-        case 3: return mask(47, 16);
+        case 1: return ~mask(42);
+        case 2: return ~mask(29);
+        case 3: return ~mask(16);
         default: panic("bad level %d", level);
     }
 }
 
 unsigned
-V8PageTableOps64k::firstLevel() const
+V8PageTableOps64k::firstLevel(uint8_t tsz) const
 {
-    return 1;
+    if (tsz >= 12 && tsz <= 21) return 1;
+    if (tsz >= 22 && tsz <= 34) return 2;
+    if (tsz >= 35 && tsz <= 39) return 3;
+
+    panic("Unsupported TnSZ: %d\n", tsz);
 }
 
 unsigned

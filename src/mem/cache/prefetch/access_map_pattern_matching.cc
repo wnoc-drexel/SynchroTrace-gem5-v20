@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 #include "mem/cache/prefetch/access_map_pattern_matching.hh"
@@ -34,6 +32,8 @@
 #include "mem/cache/prefetch/associative_set_impl.hh"
 #include "params/AMPMPrefetcher.hh"
 #include "params/AccessMapPatternMatching.hh"
+
+namespace Prefetcher {
 
 AccessMapPatternMatching::AccessMapPatternMatching(
     const AccessMapPatternMatchingParams *p)
@@ -151,9 +151,8 @@ AccessMapPatternMatching::setEntryState(AccessMapEntry &entry,
 }
 
 void
-AccessMapPatternMatching::calculatePrefetch(
-    const BasePrefetcher::PrefetchInfo &pfi,
-    std::vector<QueuedPrefetcher::AddrPriority> &addresses)
+AccessMapPatternMatching::calculatePrefetch(const Base::PrefetchInfo &pfi,
+    std::vector<Queued::AddrPriority> &addresses)
 {
     assert(addresses.empty());
 
@@ -220,7 +219,7 @@ AccessMapPatternMatching::calculatePrefetch(
                 pf_addr = am_addr * hotZoneSize + blk * blkSize;
                 setEntryState(*am_entry_curr, blk, AM_PREFETCH);
             }
-            addresses.push_back(QueuedPrefetcher::AddrPriority(pf_addr, 0));
+            addresses.push_back(Queued::AddrPriority(pf_addr, 0));
             if (addresses.size() == degree) {
                 break;
             }
@@ -244,7 +243,7 @@ AccessMapPatternMatching::calculatePrefetch(
                 pf_addr = am_addr * hotZoneSize + blk * blkSize;
                 setEntryState(*am_entry_curr, blk, AM_PREFETCH);
             }
-            addresses.push_back(QueuedPrefetcher::AddrPriority(pf_addr, 0));
+            addresses.push_back(Queued::AddrPriority(pf_addr, 0));
             if (addresses.size() == degree) {
                 break;
             }
@@ -252,26 +251,28 @@ AccessMapPatternMatching::calculatePrefetch(
     }
 }
 
-AccessMapPatternMatching*
-AccessMapPatternMatchingParams::create()
-{
-    return new AccessMapPatternMatching(this);
-}
-
-AMPMPrefetcher::AMPMPrefetcher(const AMPMPrefetcherParams *p)
-  : QueuedPrefetcher(p), ampm(*p->ampm)
+AMPM::AMPM(const AMPMPrefetcherParams *p)
+  : Queued(p), ampm(*p->ampm)
 {
 }
 
 void
-AMPMPrefetcher::calculatePrefetch(const PrefetchInfo &pfi,
+AMPM::calculatePrefetch(const PrefetchInfo &pfi,
     std::vector<AddrPriority> &addresses)
 {
     ampm.calculatePrefetch(pfi, addresses);
 }
 
-AMPMPrefetcher*
+} // namespace Prefetcher
+
+Prefetcher::AccessMapPatternMatching*
+AccessMapPatternMatchingParams::create()
+{
+    return new Prefetcher::AccessMapPatternMatching(this);
+}
+
+Prefetcher::AMPM*
 AMPMPrefetcherParams::create()
 {
-    return new AMPMPrefetcher(this);
+    return new Prefetcher::AMPM(this);
 }

@@ -36,11 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Nathan Binkert
- *          Andreas Hansson
- *          Andreas Sandberg
  */
 
 #include "dev/dma_device.hh"
@@ -56,8 +51,8 @@
 
 DmaPort::DmaPort(ClockedObject *dev, System *s,
                  uint32_t sid, uint32_t ssid)
-    : MasterPort(dev->name() + ".dma", dev),
-      device(dev), sys(s), masterId(s->getMasterId(dev)),
+    : RequestPort(dev->name() + ".dma", dev),
+      device(dev), sys(s), requestorId(s->getRequestorId(dev)),
       sendEvent([this]{ sendDma(); }, dev->name()),
       pendingCount(0), inRetry(false),
       defaultSid(sid),
@@ -171,7 +166,7 @@ DmaPort::dmaAction(Packet::Command cmd, Addr addr, int size, Event *event,
          !gen.done(); gen.next()) {
 
         req = std::make_shared<Request>(
-            gen.addr(), gen.size(), flag, masterId);
+            gen.addr(), gen.size(), flag, requestorId);
 
         req->setStreamId(sid);
         req->setSubStreamId(ssid);

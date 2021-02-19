@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vasileios Spiliopoulos
- *          Akash Bagdia
- *          Stephan Diestelhorst
  */
 
 #include "sim/dvfs_handler.hh"
@@ -49,7 +45,7 @@
 #include "debug/DVFS.hh"
 #include "params/DVFSHandler.hh"
 #include "sim/clock_domain.hh"
-#include "sim/eventq_impl.hh"
+#include "sim/eventq.hh"
 #include "sim/stat_control.hh"
 #include "sim/voltage_domain.hh"
 

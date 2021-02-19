@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #include "cpu/o3/rename_map.hh"
@@ -215,6 +213,11 @@ UnifiedRenameMap::switchMode(VecMode newVecMode)
         for (uint32_t i = 0; i < TheISA::NumVecRegs; i++) {
             PhysRegId pregId(VecRegClass, i, 0);
             regFile->setVecReg(regFile->getTrueId(&pregId), new_RF[i]);
+        }
+
+        auto range = regFile->getRegIds(VecRegClass);
+        for (uint32_t i = 0; i < TheISA::NumVecRegs; i++) {
+            setEntry(RegId(VecRegClass, i), &(*(range.first + i)));
         }
 
     }

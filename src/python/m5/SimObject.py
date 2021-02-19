@@ -1,4 +1,4 @@
-# Copyright (c) 2017-2019 ARM Limited
+# Copyright (c) 2017-2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -37,14 +37,10 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
-#          Nathan Binkert
-#          Andreas Hansson
-#          Andreas Sandberg
 
 from __future__ import print_function
 from __future__ import absolute_import
+from six import add_metaclass
 import six
 if six.PY3:
     long = int
@@ -190,11 +186,11 @@ def createCxxConfigDirectoryEntryFile(code, name, simobj, is_header):
 
         for port in simobj._ports.values():
             is_vector = isinstance(port, m5.params.VectorPort)
-            is_master = port.role == 'MASTER'
+            is_requestor = port.role == 'GEM5 REQUESTOR'
 
             code('ports["%s"] = new PortDesc("%s", %s, %s);' %
                 (port.name, port.name, cxx_bool(is_vector),
-                cxx_bool(is_master)))
+                cxx_bool(is_requestor)))
 
         code.dedent()
         code('}')
@@ -471,6 +467,12 @@ class MetaSimObject(type):
         cls._params = multidict() # param descriptions
         cls._ports = multidict()  # port descriptions
 
+        # Parameter names that are deprecated. Dict[str, DeprecatedParam]
+        # The key is the "old_name" so that when the old_name is used in
+        # python config files, we will use the DeprecatedParam object to
+        # translate to the new type.
+        cls._deprecated_params = multidict()
+
         # class or instance attributes
         cls._values = multidict()   # param values
         cls._hr_values = multidict() # human readable param values
@@ -499,6 +501,7 @@ class MetaSimObject(type):
             cls._base = base
             cls._params.parent = base._params
             cls._ports.parent = base._ports
+            cls._deprecated_params.parent = base._deprecated_params
             cls._values.parent = base._values
             cls._hr_values.parent = base._hr_values
             cls._children.parent = base._children
@@ -535,6 +538,15 @@ class MetaSimObject(type):
             # port objects
             elif isinstance(val, Port):
                 cls._new_port(key, val)
+
+            # Deprecated variable names
+            elif isinstance(val, DeprecatedParam):
+                new_name, new_val = cls._get_param_by_value(val.newParam)
+                # Note: We don't know the (string) name of this variable until
+                # here, so now we can finish setting up the dep_param.
+                val.oldName = key
+                val.newName = new_name
+                cls._deprecated_params[key] = val
 
             # init-time-only keywords
             elif key in cls.init_keywords:
@@ -607,6 +619,18 @@ class MetaSimObject(type):
             ref = cls._ports[attr].makeRef(cls)
             cls._port_refs[attr] = ref
         return ref
+
+    def _get_param_by_value(cls, value):
+        """Given an object, value, return the name and the value from the
+        internal list of parameter values. If this value can't be found, raise
+        a runtime error. This will search both the current object and its
+        parents.
+        """
+        for k,v in cls._value_dict.items():
+            if v == value:
+                return k,v
+        raise RuntimeError("Cannot find parameter {} in parameter list"
+                           .format(value))
 
     # Set attribute (called on foo.attr = value when foo is an
     # instance of class cls).
@@ -690,7 +714,7 @@ class MetaSimObject(type):
         # the object itself, not including inherited params (which
         # will also be inherited from the base class's param struct
         # here). Sort the params based on their key
-        params = map(lambda k_v: k_v[1], sorted(cls._params.local.items()))
+        params = list(map(lambda k_v: k_v[1], sorted(cls._params.local.items())))
         ports = cls._ports.local
 
         code('''#include "pybind11/pybind11.h"
@@ -787,7 +811,7 @@ module_init(py::module &m_internal)
         # the object itself, not including inherited params (which
         # will also be inherited from the base class's param struct
         # here). Sort the params based on their key
-        params = map(lambda k_v: k_v[1], sorted(cls._params.local.items()))
+        params = list(map(lambda k_v: k_v[1], sorted(cls._params.local.items())))
         ports = cls._ports.local
         try:
             ptypes = [p.ptype for p in params]
@@ -1075,18 +1099,21 @@ class SimObjectCliWrapper(object):
                 out.extend(sim_object[i] for i in _range)
         return SimObjectCliWrapper(out)
 
+    def __iter__(self):
+        return iter(self._sim_objects)
+
 # The SimObject class is the root of the special hierarchy.  Most of
 # the code in this class deals with the configuration hierarchy itself
 # (parent/child node relationships).
+@add_metaclass(MetaSimObject)
 class SimObject(object):
     # Specify metaclass.  Any class inheriting from SimObject will
     # get this metaclass.
-    __metaclass__ = MetaSimObject
     type = 'SimObject'
     abstract = True
 
     cxx_header = "sim/sim_object.hh"
-    cxx_extra_bases = [ "Drainable", "Serializable" ]
+    cxx_extra_bases = [ "Drainable", "Serializable", "Stats::Group" ]
     eventq_index = Param.UInt32(Parent.eventq_index, "Event Queue Index")
 
     cxx_exports = [
@@ -1094,8 +1121,6 @@ class SimObject(object):
         PyBindMethod("initState"),
         PyBindMethod("memInvalidate"),
         PyBindMethod("memWriteback"),
-        PyBindMethod("regStats"),
-        PyBindMethod("resetStats"),
         PyBindMethod("regProbePoints"),
         PyBindMethod("regProbeListeners"),
         PyBindMethod("startup"),
@@ -1258,6 +1283,11 @@ class SimObject(object):
         return ref
 
     def __getattr__(self, attr):
+        if attr in self._deprecated_params:
+            dep_param = self._deprecated_params[attr]
+            dep_param.printWarning(self._name, self.__class__.__name__)
+            return getattr(self, self._deprecated_params[attr].newName)
+
         if attr in self._ports:
             return self._get_port_ref(attr)
 
@@ -1289,6 +1319,11 @@ class SimObject(object):
         if attr.startswith('_'):
             object.__setattr__(self, attr, value)
             return
+
+        if attr in self._deprecated_params:
+            dep_param = self._deprecated_params[attr]
+            dep_param.printWarning(self._name, self.__class__.__name__)
+            return setattr(self, self._deprecated_params[attr].newName, value)
 
         if attr in self._ports:
             # set up port connection
@@ -1414,6 +1449,13 @@ class SimObject(object):
         if ppath == 'root':
             return self._name
         return ppath + "." + self._name
+
+    def path_list(self):
+        if self._parent:
+            return self._parent.path_list() + [ self._name, ]
+        else:
+            # Don't include the root node
+            return []
 
     def __str__(self):
         return self.path()
@@ -1693,6 +1735,18 @@ class SimObject(object):
         d = self._apply_config_get_dict()
         for param in params:
             exec(param, d)
+
+    def get_simobj(self, simobj_path):
+        """
+        Get all sim objects that match a given string.
+
+        The format is the same as that supported by SimObjectCliWrapper.
+
+        :param simobj_path: Current state to be in.
+        :type simobj_path: str
+        """
+        d = self._apply_config_get_dict()
+        return eval(simobj_path, d)
 
 # Function to provide to C++ so it can look up instances based on paths
 def resolveSimObject(name):

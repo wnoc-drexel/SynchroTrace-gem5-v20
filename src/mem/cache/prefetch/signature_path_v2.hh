@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
  /**
@@ -49,7 +47,9 @@
 
 struct SignaturePathPrefetcherV2Params;
 
-class SignaturePathPrefetcherV2 : public SignaturePathPrefetcher
+namespace Prefetcher {
+
+class SignaturePathV2 : public SignaturePath
 {
     /** Global History Register entry datatype */
     struct GlobalHistoryEntry : public TaggedEntry
@@ -90,8 +90,10 @@ class SignaturePathPrefetcherV2 : public SignaturePathPrefetcher
             override;
 
   public:
-    SignaturePathPrefetcherV2(const SignaturePathPrefetcherV2Params* p);
-    ~SignaturePathPrefetcherV2() {}
+    SignaturePathV2(const SignaturePathPrefetcherV2Params* p);
+    ~SignaturePathV2() = default;
 };
+
+} // namespace Prefetcher
 
 #endif//__MEM_CACHE_PREFETCH_SIGNATURE_PATH_V2_HH__

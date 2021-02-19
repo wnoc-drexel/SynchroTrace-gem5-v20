@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #include "cpu/inst_pb_trace.hh"
@@ -93,9 +91,7 @@ InstPBTrace::createTraceFile(std::string filename)
     traceStream->write(header_msg);
 
     // get a callback when we exit so we can close the file
-    Callback *cb = new MakeCallback<InstPBTrace,
-             &InstPBTrace::closeStreams>(this);
-    registerExitCallback(cb);
+    registerExitCallback([this]() { closeStreams(); });
 }
 
 void

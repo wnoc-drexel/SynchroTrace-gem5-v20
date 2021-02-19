@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
  */
 
 #ifndef __ARM_PROCESS_HH__
@@ -50,15 +48,14 @@
 #include "base/loader/object_file.hh"
 #include "mem/page_table.hh"
 #include "sim/process.hh"
-
-class ObjectFile;
+#include "sim/syscall_abi.hh"
 
 class ArmProcess : public Process
 {
   protected:
-    ObjectFile::Arch arch;
-    ArmProcess(ProcessParams * params, ObjectFile *objFile,
-               ObjectFile::Arch _arch);
+    ::Loader::Arch arch;
+    ArmProcess(ProcessParams * params, ::Loader::ObjectFile *objFile,
+               ::Loader::Arch _arch);
     template<class IntType>
     void argsInit(int pageSize, ArmISA::IntRegIndex spIndex);
 
@@ -77,8 +74,8 @@ class ArmProcess : public Process
 class ArmProcess32 : public ArmProcess
 {
   protected:
-    ArmProcess32(ProcessParams * params, ObjectFile *objFile,
-                 ObjectFile::Arch _arch);
+    ArmProcess32(ProcessParams * params, ::Loader::ObjectFile *objFile,
+                 ::Loader::Arch _arch);
 
     void initState() override;
 
@@ -86,19 +83,42 @@ class ArmProcess32 : public ArmProcess
     uint32_t armHwcapImpl() const override;
 
   public:
-
-    RegVal getSyscallArg(ThreadContext *tc, int &i, int width) override;
-    RegVal getSyscallArg(ThreadContext *tc, int &i) override;
-    void setSyscallArg(ThreadContext *tc, int i, RegVal val) override;
-    void setSyscallReturn(ThreadContext *tc,
-            SyscallReturn return_value) override;
+    struct SyscallABI : public GenericSyscallABI32
+    {
+        static const std::vector<int> ArgumentRegs;
+    };
 };
+
+namespace GuestABI
+{
+
+template <typename ABI, typename Arg>
+struct Argument<ABI, Arg,
+    typename std::enable_if<
+        std::is_base_of<ArmProcess32::SyscallABI, ABI>::value &&
+        ABI::template IsWide<Arg>::value>::type>
+{
+    static Arg
+    get(ThreadContext *tc, typename ABI::State &state)
+    {
+        // 64 bit arguments are passed starting in an even register.
+        if (state % 2)
+            state++;
+        panic_if(state + 1 >= ABI::ArgumentRegs.size(),
+                "Ran out of syscall argument registers.");
+        auto low = ABI::ArgumentRegs[state++];
+        auto high = ABI::ArgumentRegs[state++];
+        return (Arg)ABI::mergeRegs(tc, low, high);
+    }
+};
+
+} // namespace GuestABI
 
 class ArmProcess64 : public ArmProcess
 {
   protected:
-    ArmProcess64(ProcessParams * params, ObjectFile *objFile,
-                 ObjectFile::Arch _arch);
+    ArmProcess64(ProcessParams * params, ::Loader::ObjectFile *objFile,
+                 ::Loader::Arch _arch);
 
     void initState() override;
 
@@ -106,12 +126,10 @@ class ArmProcess64 : public ArmProcess
     uint32_t armHwcapImpl() const override;
 
   public:
-
-    RegVal getSyscallArg(ThreadContext *tc, int &i, int width) override;
-    RegVal getSyscallArg(ThreadContext *tc, int &i) override;
-    void setSyscallArg(ThreadContext *tc, int i, RegVal val) override;
-    void setSyscallReturn(ThreadContext *tc,
-            SyscallReturn return_value) override;
+    struct SyscallABI : public GenericSyscallABI64
+    {
+        static const std::vector<int> ArgumentRegs;
+    };
 };
 
 #endif // __ARM_PROCESS_HH__

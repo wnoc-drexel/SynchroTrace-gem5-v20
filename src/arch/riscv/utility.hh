@@ -2,6 +2,7 @@
  * Copyright (c) 2013 ARM Limited
  * Copyright (c) 2014-2015 Sven Karlsson
  * Copyright (c) 2018 TU Dresden
+ * Copyright (c) 2020 Barkhausen Institut
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -38,11 +39,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
- *          Sven Karlsson
- *          Alec Roelke
- *          Robert Scheffel
  */
 
 #ifndef __ARCH_RISCV_UTILITY_HH__
@@ -114,12 +110,14 @@ buildRetPC(const PCState &curPC, const PCState &callPC)
 inline uint64_t
 getArgument(ThreadContext *tc, int &number, uint16_t size, bool fp)
 {
-    return 0;
-}
+    panic_if(fp, "getArgument(): Floating point arguments not implemented");
+    panic_if(size != 8, "getArgument(): Can only handle 64-bit arguments.");
+    panic_if(number >= ArgumentRegs.size(),
+             "getArgument(): Don't know how to handle stack arguments");
 
-inline void startupCPU(ThreadContext *tc, int cpuId)
-{
-    tc->activate();
+    // The first 8 integer arguments are passed in registers, the rest
+    // are passed on the stack.
+    return tc->readIntReg(ArgumentRegs[number]);
 }
 
 inline void
@@ -128,6 +126,10 @@ copyRegs(ThreadContext *src, ThreadContext *dest)
     // First loop through the integer registers.
     for (int i = 0; i < NumIntRegs; ++i)
         dest->setIntReg(i, src->readIntReg(i));
+
+    // Second loop through the float registers.
+    for (int i = 0; i < NumFloatRegs; ++i)
+        dest->setFloatReg(i, src->readFloatReg(i));
 
     // Lastly copy PC/NPC
     dest->pcState(src->pcState());
@@ -163,12 +165,6 @@ registerName(RegId reg)
 }
 
 inline void
-skipFunction(ThreadContext *tc)
-{
-    panic("Not Implemented for Riscv");
-}
-
-inline void
 advancePC(PCState &pc, const StaticInstPtr &inst)
 {
     inst->advancePC(pc);
@@ -185,11 +181,6 @@ getExecutingAsid(ThreadContext *tc)
 {
     return 0;
 }
-
-/**
- * init Cpu function
- */
-void initCPU(ThreadContext *tc, int cpuId);
 
 } // namespace RiscvISA
 

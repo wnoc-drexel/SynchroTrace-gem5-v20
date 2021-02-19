@@ -1,4 +1,4 @@
-# Copyright (c) 2016 ARM Limited
+# Copyright (c) 2016, 2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -36,14 +36,15 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
 
 from __future__ import print_function
 
 import os
 import re
 import sys
+
+from six import string_types
+from six.moves import zip_longest
 
 from . import convert
 from . import jobfile
@@ -124,20 +125,21 @@ def compareVersions(v1, v2):
     def make_version_list(v):
         if isinstance(v, (list,tuple)):
             return v
-        elif isinstance(v, str):
-            return map(lambda x: int(re.match('\d+', x).group()), v.split('.'))
+        elif isinstance(v, string_types):
+            return list(map(lambda x: int(re.match('\d+', x).group()),
+                            v.split('.')))
         else:
             raise TypeError()
 
     v1 = make_version_list(v1)
     v2 = make_version_list(v2)
+
     # Compare corresponding elements of lists
-    for n1,n2 in zip(v1, v2):
+    # The shorter list is filled with 0 till the lists have the same length
+    for n1,n2 in zip_longest(v1, v2, fillvalue=0):
         if n1 < n2: return -1
         if n1 > n2: return  1
-    # all corresponding values are equal... see if one has extra values
-    if len(v1) < len(v2): return -1
-    if len(v1) > len(v2): return  1
+
     return 0
 
 def crossproduct(items):
@@ -176,9 +178,16 @@ def printList(items, indent=4):
             line += item
             print(line)
 
-def readCommand(cmd, **kwargs):
-    """run the command cmd, read the results and return them
-    this is sorta like `cmd` in shell"""
+def readCommandWithReturn(cmd, **kwargs):
+    """
+    run the command cmd, read the results and return them
+    this is sorta like `cmd` in shell
+
+    :param cmd: command to run with Popen
+    :type cmd: string, list
+    :returns: pair consisting on Popen retcode and the command stdout
+    :rtype: (int, string)
+    """
     from subprocess import Popen, PIPE, STDOUT
 
     if isinstance(cmd, str):
@@ -195,10 +204,23 @@ def readCommand(cmd, **kwargs):
         subp = Popen(cmd, **kwargs)
     except Exception as e:
         if no_exception:
-            return exception
+            return -1, exception
         raise
 
-    return subp.communicate()[0]
+    output = subp.communicate()[0].decode('utf-8')
+    return subp.returncode, output
+
+def readCommand(cmd, **kwargs):
+    """
+    run the command cmd, read the results and return them
+    this is sorta like `cmd` in shell
+
+    :param cmd: command to run with Popen
+    :type cmd: string, list
+    :returns: command stdout
+    :rtype: string
+    """
+    return readCommandWithReturn(cmd, **kwargs)[1]
 
 def makeDir(path):
     """Make a directory if it doesn't exist.  If the path does exist,

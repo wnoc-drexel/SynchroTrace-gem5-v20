@@ -25,14 +25,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Timothy M. Jones
  */
 
 #ifndef __ARCH_POWER_ISA_HH__
 #define __ARCH_POWER_ISA_HH__
 
+#include "arch/generic/isa.hh"
 #include "arch/power/registers.hh"
 #include "arch/power/types.hh"
 #include "base/logging.hh"
@@ -47,7 +45,7 @@ class EventManager;
 namespace PowerISA
 {
 
-class ISA : public SimObject
+class ISA : public BaseISA
 {
   protected:
     RegVal dummy;
@@ -56,11 +54,9 @@ class ISA : public SimObject
   public:
     typedef PowerISAParams Params;
 
-    void
-    clear()
-    {
-    }
+    void clear() {}
 
+  public:
     RegVal
     readMiscRegNoEffect(int misc_reg) const
     {
@@ -69,7 +65,7 @@ class ISA : public SimObject
     }
 
     RegVal
-    readMiscReg(int misc_reg, ThreadContext *tc)
+    readMiscReg(int misc_reg)
     {
         fatal("Power does not currently have any misc regs defined\n");
         return dummy;
@@ -82,7 +78,7 @@ class ISA : public SimObject
     }
 
     void
-    setMiscReg(int misc_reg, RegVal val, ThreadContext *tc)
+    setMiscReg(int misc_reg, RegVal val)
     {
         fatal("Power does not currently have any misc regs defined\n");
     }
@@ -131,11 +127,6 @@ class ISA : public SimObject
     {
         return reg;
     }
-
-    void startup(ThreadContext *tc) {}
-
-    /// Explicitly import the otherwise hidden startup
-    using SimObject::startup;
 
     const Params *params() const;
 

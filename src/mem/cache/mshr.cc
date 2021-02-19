@@ -37,10 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Dave Greene
- *          Nikos Nikoleris
  */
 
 /**
@@ -108,6 +104,51 @@ MSHR::TargetList::populateFlags()
     resetFlags();
     for (auto& t: *this) {
         updateFlags(t.pkt, t.source, t.allocOnFill);
+    }
+}
+
+void
+MSHR::TargetList::updateWriteFlags(PacketPtr pkt)
+{
+    if (isWholeLineWrite()) {
+        // if we have already seen writes for the full block
+        // stop here, this might be a full line write followed
+        // by other compatible requests (e.g., reads)
+        return;
+    }
+
+    if (canMergeWrites) {
+        if (!pkt->isWrite()) {
+            // We won't allow further merging if this hasn't
+            // been a write
+            canMergeWrites = false;
+            return;
+        }
+
+        // Avoid merging requests with special flags (e.g.,
+        // strictly ordered)
+        const Request::FlagsType no_merge_flags =
+            Request::UNCACHEABLE | Request::STRICT_ORDER |
+            Request::PRIVILEGED | Request::LLSC | Request::MEM_SWAP |
+            Request::MEM_SWAP_COND | Request::SECURE;
+        const auto &req_flags = pkt->req->getFlags();
+        bool compat_write = !req_flags.isSet(no_merge_flags);
+
+        // if this is the first write, it might be a whole
+        // line write and even if we can't merge any
+        // subsequent write requests, we still need to service
+        // it as a whole line write (e.g., SECURE whole line
+        // write)
+        bool first_write = empty();
+        if (first_write || compat_write) {
+            auto offset = pkt->getOffset(blkSize);
+            auto begin = writesBitmap.begin() + offset;
+            std::fill(begin, begin + pkt->getSize(), true);
+        }
+
+        // We won't allow further merging if this has been a
+        // special write
+        canMergeWrites &= compat_write;
     }
 }
 
@@ -419,6 +460,10 @@ MSHR::handleSnoop(PacketPtr pkt, Counter _order)
         return true;
     }
 
+    // Start by determining if we will eventually respond or not,
+    // matching the conditions checked in Cache::handleSnoop
+    const bool will_respond = isPendingModified() && pkt->needsResponse() &&
+        !pkt->isClean();
     if (isPendingModified() || pkt->isInvalidate()) {
         // We need to save and replay the packet in two cases:
         // 1. We're awaiting a writable copy (Modified or Exclusive),
@@ -427,11 +472,6 @@ MSHR::handleSnoop(PacketPtr pkt, Counter _order)
         // 2. It's an invalidation (e.g., UpgradeReq), and we need
         //    to forward the snoop up the hierarchy after the current
         //    transaction completes.
-
-        // Start by determining if we will eventually respond or not,
-        // matching the conditions checked in Cache::handleSnoop
-        bool will_respond = isPendingModified() && pkt->needsResponse() &&
-                      !pkt->isClean();
 
         // The packet we are snooping may be deleted by the time we
         // actually process the target, and we consequently need to
@@ -489,7 +529,7 @@ MSHR::handleSnoop(PacketPtr pkt, Counter _order)
         pkt->setHasSharers();
     }
 
-    return true;
+    return will_respond;
 }
 
 MSHR::TargetList
@@ -612,8 +652,10 @@ MSHR::promoteReadable()
 void
 MSHR::promoteWritable()
 {
+    PacketPtr def_tgt_pkt = deferredTargets.front().pkt;
     if (deferredTargets.needsWritable &&
-        !(hasPostInvalidate() || hasPostDowngrade())) {
+        !(hasPostInvalidate() || hasPostDowngrade()) &&
+        !def_tgt_pkt->req->isCacheInvalidate()) {
         // We got a writable response, but we have deferred targets
         // which are waiting to request a writable copy (not because
         // of a pending invalidate).  This can happen if the original

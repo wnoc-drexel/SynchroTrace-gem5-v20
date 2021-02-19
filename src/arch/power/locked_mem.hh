@@ -26,10 +26,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Stephen Hines
- *          Timothy M. Jones
  */
 
 #ifndef __ARCH_POWER_LOCKED_MEM_HH__
@@ -42,5 +38,12 @@
  */
 
 #include "arch/generic/locked_mem.hh"
+
+namespace PowerISA
+{
+
+using namespace GenericISA::LockedMem;
+
+} // namespace PowerISA
 
 #endif // __ARCH_POWER_LOCKED_MEM_HH__

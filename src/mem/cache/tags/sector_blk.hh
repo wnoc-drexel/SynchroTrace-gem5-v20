@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /** @file
@@ -124,11 +122,11 @@ class SectorSubBlk : public CacheBlk
      *
      * @param tag Block address tag.
      * @param is_secure Whether the block is in secure space or not.
-     * @param src_master_ID The source requestor ID.
+     * @param src_requestor_ID The source requestor ID.
      * @param task_ID The new task ID.
      */
-    void insert(const Addr tag, const bool is_secure, const int src_master_ID,
-                const uint32_t task_ID) override;
+    void insert(const Addr tag, const bool is_secure, const int
+                src_requestor_ID, const uint32_t task_ID) override;
 
     /**
      * Pretty-print sector offset and other CacheBlk information.
@@ -144,17 +142,18 @@ class SectorSubBlk : public CacheBlk
  */
 class SectorBlk : public ReplaceableEntry
 {
-  protected:
-    /**
-     * Sector tag value. A sector's tag is the tag of all its sub-blocks.
-     */
-    Addr _tag;
-
+  private:
     /**
      * Counter of the number of valid sub-blocks. The sector is valid if any
      * of its sub-blocks is valid.
      */
     uint8_t _validCounter;
+
+  protected:
+    /**
+     * Sector tag value. A sector's tag is the tag of all its sub-blocks.
+     */
+    Addr _tag;
 
     /**
      * Whether sector blk is in secure-space or not.
@@ -176,6 +175,13 @@ class SectorBlk : public ReplaceableEntry
      * @return True if any of the blocks in the sector is valid.
      */
     bool isValid() const;
+
+    /**
+     * Get the number of sub-blocks that have been validated.
+     *
+     * @return The number of valid sub-blocks.
+     */
+    uint8_t getNumValid() const;
 
     /**
      * Checks that a sector block is secure. A single secure block suffices
@@ -214,6 +220,14 @@ class SectorBlk : public ReplaceableEntry
      * Set secure bit.
      */
     void setSecure();
+
+    /**
+     * Sets the position of the sub-entries, besides its own.
+     *
+     * @param set The set of this entry and sub-entries.
+     * @param way The way of this entry and sub-entries.
+     */
+    void setPosition(const uint32_t set, const uint32_t way) override;
 };
 
 #endif //__MEM_CACHE_TAGS_SECTOR_BLK_HH__

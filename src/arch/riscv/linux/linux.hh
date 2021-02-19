@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Korey Sewell
  */
 
 #ifndef __ARCH_RISCV_LINUX_LINUX_HH__
@@ -34,7 +32,13 @@
 #include "arch/riscv/utility.hh"
 #include "kern/linux/linux.hh"
 
-class RiscvLinux64 : public Linux
+class RiscvLinux : public Linux
+{
+  public:
+    static const ByteOrder byteOrder = ByteOrder::little;
+};
+
+class RiscvLinux64 : public RiscvLinux
 {
   public:
     static const int TGT_SIGHUP         =  1;
@@ -203,7 +207,7 @@ class RiscvLinux64 : public Linux
     }
 };
 
-class RiscvLinux32 : public Linux
+class RiscvLinux32 : public RiscvLinux
 {
   public:
     static const int TGT_SIGHUP         =  1;

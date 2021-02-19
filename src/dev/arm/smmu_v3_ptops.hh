@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #ifndef __DEV_ARM_SMMU_V3_PTOPS_HH__
@@ -55,47 +53,60 @@ struct PageTableOps
     virtual Addr index(Addr va, unsigned level) const = 0;
     virtual Addr pageMask(pte_t pte, unsigned level) const = 0;
     virtual Addr walkMask(unsigned level) const = 0;
-    virtual unsigned firstLevel() const = 0;
+    virtual unsigned firstLevel(uint8_t tsz) const = 0;
     virtual unsigned lastLevel() const = 0;
 };
 
 struct V7LPageTableOps : public PageTableOps
 {
-    virtual bool isValid(pte_t pte, unsigned level) const;
-    virtual bool isLeaf(pte_t pte, unsigned level) const;
-    virtual bool isWritable(pte_t pte, unsigned level, bool stage2) const;
-    virtual Addr nextLevelPointer(pte_t pte, unsigned level) const;
-    virtual Addr index(Addr va, unsigned level) const;
-    virtual Addr pageMask(pte_t pte, unsigned level) const;
-    virtual Addr walkMask(unsigned level) const;
-    virtual unsigned firstLevel() const;
-    virtual unsigned lastLevel() const;
+    bool isValid(pte_t pte, unsigned level) const override;
+    bool isLeaf(pte_t pte, unsigned level) const override;
+    bool isWritable(pte_t pte, unsigned level, bool stage2) const override;
+    Addr nextLevelPointer(pte_t pte, unsigned level) const override;
+    Addr index(Addr va, unsigned level) const override;
+    Addr pageMask(pte_t pte, unsigned level) const override;
+    Addr walkMask(unsigned level) const override;
+    unsigned firstLevel(uint8_t tsz) const override;
+    unsigned lastLevel() const override;
 };
 
 struct V8PageTableOps4k : public PageTableOps
 {
-    virtual bool isValid(pte_t pte, unsigned level) const;
-    virtual bool isLeaf(pte_t pte, unsigned level) const;
-    virtual bool isWritable(pte_t pte, unsigned level, bool stage2) const;
-    virtual Addr nextLevelPointer(pte_t pte, unsigned level) const;
-    virtual Addr index(Addr va, unsigned level) const;
-    virtual Addr pageMask(pte_t pte, unsigned level) const;
-    virtual Addr walkMask(unsigned level) const;
-    virtual unsigned firstLevel() const;
-    virtual unsigned lastLevel() const;
+    bool isValid(pte_t pte, unsigned level) const override;
+    bool isLeaf(pte_t pte, unsigned level) const override;
+    bool isWritable(pte_t pte, unsigned level, bool stage2) const override;
+    Addr nextLevelPointer(pte_t pte, unsigned level) const override;
+    Addr index(Addr va, unsigned level) const override;
+    Addr pageMask(pte_t pte, unsigned level) const override;
+    Addr walkMask(unsigned level) const override;
+    unsigned firstLevel(uint8_t tsz) const override;
+    unsigned lastLevel() const override;
+};
+
+struct V8PageTableOps16k : public PageTableOps
+{
+    bool isValid(pte_t pte, unsigned level) const override;
+    bool isLeaf(pte_t pte, unsigned level) const override;
+    bool isWritable(pte_t pte, unsigned level, bool stage2) const override;
+    Addr nextLevelPointer(pte_t pte, unsigned level) const override;
+    Addr index(Addr va, unsigned level) const override;
+    Addr pageMask(pte_t pte, unsigned level) const override;
+    Addr walkMask(unsigned level) const override;
+    unsigned firstLevel(uint8_t tsz) const override;
+    unsigned lastLevel() const override;
 };
 
 struct V8PageTableOps64k : public PageTableOps
 {
-    virtual bool isValid(pte_t pte, unsigned level) const;
-    virtual bool isLeaf(pte_t pte, unsigned level) const;
-    virtual bool isWritable(pte_t pte, unsigned level, bool stage2) const;
-    virtual Addr nextLevelPointer(pte_t pte, unsigned level) const;
-    virtual Addr index(Addr va, unsigned level) const;
-    virtual Addr pageMask(pte_t pte, unsigned level) const;
-    virtual Addr walkMask(unsigned level) const;
-    virtual unsigned firstLevel() const;
-    virtual unsigned lastLevel() const;
+    bool isValid(pte_t pte, unsigned level) const override;
+    bool isLeaf(pte_t pte, unsigned level) const override;
+    bool isWritable(pte_t pte, unsigned level, bool stage2) const override;
+    Addr nextLevelPointer(pte_t pte, unsigned level) const override;
+    Addr index(Addr va, unsigned level) const override;
+    Addr pageMask(pte_t pte, unsigned level) const override;
+    Addr walkMask(unsigned level) const override;
+    unsigned firstLevel(uint8_t tsz) const override;
+    unsigned lastLevel() const override;
 };
 
 #endif /* __DEV_ARM_SMMU_V3_PTOPS_HH__ */

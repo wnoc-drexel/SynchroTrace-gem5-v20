@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 2018 Metempsy Technology Consulting
  * All rights reserved.
  *
@@ -24,13 +36,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jairo Balart
  */
 
 #ifndef __DEV_ARM_GICV3_H__
 #define __DEV_ARM_GICV3_H__
 
+#include "arch/arm/interrupts.hh"
 #include "dev/arm/base_gic.hh"
 #include "params/Gicv3.hh"
 
@@ -99,7 +110,6 @@ class Gicv3 : public BaseGic
     }
 
     void init() override;
-    void initState() override;
 
     const Params *
     params() const
@@ -114,11 +124,14 @@ class Gicv3 : public BaseGic
     void serialize(CheckpointOut & cp) const override;
     void unserialize(CheckpointIn & cp) override;
     Tick write(PacketPtr pkt) override;
+    bool supportsVersion(GicVersion version) override;
 
   public:
 
     Gicv3(const Params * p);
     void deassertInt(uint32_t cpu, ArmISA::InterruptTypes int_type);
+    void deassertAll(uint32_t cpu);
+    bool haveAsserted(uint32_t cpu) const;
 
     inline Gicv3CPUInterface *
     getCPUInterface(int cpu_id) const

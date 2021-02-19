@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include "dev/arm/gic_v3_its.hh"
@@ -50,7 +48,9 @@
 
 #define COMMAND(x, method) { x, DispatchEntry(#x, method) }
 
-const AddrRange Gicv3Its::GITS_BASER(0x0100, 0x0138);
+const AddrRange Gicv3Its::GITS_BASER(0x0100, 0x0140);
+
+const uint32_t Gicv3Its::CTLR_QUIESCENT = 0x80000000;
 
 ItsProcess::ItsProcess(Gicv3Its &_its)
   : its(_its), coroutine(nullptr)
@@ -89,7 +89,7 @@ ItsProcess::doRead(Yield &yield, Addr addr, void *ptr, size_t size)
     a.type = ItsActionType::SEND_REQ;
 
     RequestPtr req = std::make_shared<Request>(
-        addr, size, 0, its.masterId);
+        addr, size, 0, its.requestorId);
 
     req->taskId(ContextSwitchTaskId::DMA);
 
@@ -113,7 +113,7 @@ ItsProcess::doWrite(Yield &yield, Addr addr, void *ptr, size_t size)
     a.type = ItsActionType::SEND_REQ;
 
     RequestPtr req = std::make_shared<Request>(
-        addr, size, 0, its.masterId);
+        addr, size, 0, its.requestorId);
 
     req->taskId(ContextSwitchTaskId::DMA);
 
@@ -144,7 +144,7 @@ void
 ItsProcess::writeDeviceTable(Yield &yield, uint32_t device_id, DTE dte)
 {
     const Addr base = its.pageAddress(Gicv3Its::DEVICE_TABLE);
-    const Addr address = base + device_id;
+    const Addr address = base + (device_id * sizeof(dte));
 
     DPRINTF(ITS, "Writing DTE at address %#x: %#x\n", address, dte);
 
@@ -155,7 +155,7 @@ void
 ItsProcess::writeIrqTranslationTable(
     Yield &yield, const Addr itt_base, uint32_t event_id, ITTE itte)
 {
-    const Addr address = itt_base + event_id;
+    const Addr address = itt_base + (event_id * sizeof(itte));
 
     doWrite(yield, address, &itte, sizeof(itte));
 
@@ -167,7 +167,7 @@ ItsProcess::writeIrqCollectionTable(
     Yield &yield, uint32_t collection_id, CTE cte)
 {
     const Addr base = its.pageAddress(Gicv3Its::COLLECTION_TABLE);
-    const Addr address = base + collection_id;
+    const Addr address = base + (collection_id * sizeof(cte));
 
     doWrite(yield, address, &cte, sizeof(cte));
 
@@ -177,10 +177,10 @@ ItsProcess::writeIrqCollectionTable(
 uint64_t
 ItsProcess::readDeviceTable(Yield &yield, uint32_t device_id)
 {
-    const Addr base = its.pageAddress(Gicv3Its::DEVICE_TABLE);
-    const Addr address = base + device_id;
-
     uint64_t dte;
+    const Addr base = its.pageAddress(Gicv3Its::DEVICE_TABLE);
+    const Addr address = base + (device_id * sizeof(dte));
+
     doRead(yield, address, &dte, sizeof(dte));
 
     DPRINTF(ITS, "Reading DTE at address %#x: %#x\n", address, dte);
@@ -191,9 +191,9 @@ uint64_t
 ItsProcess::readIrqTranslationTable(
     Yield &yield, const Addr itt_base, uint32_t event_id)
 {
-    const Addr address = itt_base + event_id;
-
     uint64_t itte;
+    const Addr address = itt_base + (event_id * sizeof(itte));
+
     doRead(yield, address, &itte, sizeof(itte));
 
     DPRINTF(ITS, "Reading ITTE at address %#x: %#x\n", address, itte);
@@ -203,10 +203,10 @@ ItsProcess::readIrqTranslationTable(
 uint64_t
 ItsProcess::readIrqCollectionTable(Yield &yield, uint32_t collection_id)
 {
-    const Addr base = its.pageAddress(Gicv3Its::COLLECTION_TABLE);
-    const Addr address = base + collection_id;
-
     uint64_t cte;
+    const Addr base = its.pageAddress(Gicv3Its::COLLECTION_TABLE);
+    const Addr address = base + (collection_id * sizeof(cte));
+
     doRead(yield, address, &cte, sizeof(cte));
 
     DPRINTF(ITS, "Reading CTE at address %#x: %#x\n", address, cte);
@@ -218,12 +218,15 @@ ItsTranslation::ItsTranslation(Gicv3Its &_its)
 {
     reinit();
     its.pendingTranslations++;
+    its.gitsControl.quiescent = 0;
 }
 
 ItsTranslation::~ItsTranslation()
 {
     assert(its.pendingTranslations >= 1);
     its.pendingTranslations--;
+    if (!its.pendingTranslations && !its.pendingCommands)
+        its.gitsControl.quiescent = 1;
 }
 
 void
@@ -309,11 +312,16 @@ ItsCommand::ItsCommand(Gicv3Its &_its)
 {
     reinit();
     its.pendingCommands = true;
+
+    its.gitsControl.quiescent = 0;
 }
 
 ItsCommand::~ItsCommand()
 {
     its.pendingCommands = false;
+
+    if (!its.pendingTranslations)
+        its.gitsControl.quiescent = 1;
 }
 
 std::string
@@ -766,22 +774,26 @@ ItsCommand::vsync(Yield &yield, CommandEntry &command)
 Gicv3Its::Gicv3Its(const Gicv3ItsParams *params)
  : BasicPioDevice(params, params->pio_size),
    dmaPort(name() + ".dma", *this),
-   gitsControl(0x1),
+   gitsControl(CTLR_QUIESCENT),
    gitsTyper(params->gits_typer),
    gitsCbaser(0), gitsCreadr(0),
    gitsCwriter(0), gitsIidr(0),
-   masterId(params->system->getMasterId(this)),
+   tableBases(NUM_BASER_REGS, 0),
+   requestorId(params->system->getRequestorId(this)),
    gic(nullptr),
    commandEvent([this] { checkCommandQueue(); }, name()),
    pendingCommands(false),
    pendingTranslations(0)
 {
-    for (auto idx = 0; idx < NUM_BASER_REGS; idx++) {
-        BASER gits_baser = 0;
-        gits_baser.type = idx;
-        gits_baser.entrySize = sizeof(uint64_t) - 1;
-        tableBases.push_back(gits_baser);
-    }
+    BASER device_baser = 0;
+    device_baser.type = DEVICE_TABLE;
+    device_baser.entrySize = sizeof(uint64_t) - 1;
+    tableBases[0] = device_baser;
+
+    BASER icollect_baser = 0;
+    icollect_baser.type = COLLECTION_TABLE;
+    icollect_baser.entrySize = sizeof(uint64_t) - 1;
+    tableBases[1] = icollect_baser;
 }
 
 void
@@ -822,16 +834,36 @@ Gicv3Its::read(PacketPtr pkt)
         value = gitsTyper;
         break;
 
+      case GITS_TYPER + 4:
+        value = gitsTyper.high;
+        break;
+
       case GITS_CBASER:
         value = gitsCbaser;
+        break;
+
+      case GITS_CBASER + 4:
+        value = gitsCbaser.high;
         break;
 
       case GITS_CWRITER:
         value = gitsCwriter;
         break;
 
+      case GITS_CWRITER + 4:
+        value = gitsCwriter.high;
+        break;
+
       case GITS_CREADR:
         value = gitsCreadr;
+        break;
+
+      case GITS_CREADR + 4:
+        value = gitsCreadr.high;
+        break;
+
+      case GITS_PIDR2:
+        value = gic->getDistributor()->gicdPidr2;
         break;
 
       case GITS_TRANSLATER:
@@ -850,7 +882,7 @@ Gicv3Its::read(PacketPtr pkt)
         }
     }
 
-    pkt->setUintX(value, LittleEndianByteOrder);
+    pkt->setUintX(value, ByteOrder::little);
     pkt->makeAtomicResponse();
     return pioDelay;
 }
@@ -865,7 +897,11 @@ Gicv3Its::write(PacketPtr pkt)
     switch (addr) {
       case GITS_CTLR:
         assert(pkt->getSize() == sizeof(uint32_t));
-        gitsControl = pkt->getLE<uint32_t>();
+        gitsControl = (pkt->getLE<uint32_t>() & ~CTLR_QUIESCENT);
+        // We should check here if the ITS has been disabled, and if
+        // that's the case, flush GICv3 caches to external memory.
+        // This is not happening now, since LPI caching is not
+        // currently implemented in gem5.
         break;
 
       case GITS_IIDR:
@@ -875,16 +911,41 @@ Gicv3Its::write(PacketPtr pkt)
         panic("GITS_TYPER is Read Only\n");
 
       case GITS_CBASER:
-        assert(pkt->getSize() == sizeof(uint64_t));
-        gitsCbaser = pkt->getLE<uint64_t>();
+        if (pkt->getSize() == sizeof(uint32_t)) {
+            gitsCbaser.low = pkt->getLE<uint32_t>();
+        } else {
+            assert(pkt->getSize() == sizeof(uint64_t));
+            gitsCbaser = pkt->getLE<uint64_t>();
+        }
+
+        gitsCreadr = 0; // Cleared when CBASER gets written
+
+        checkCommandQueue();
+        break;
+
+      case GITS_CBASER + 4:
+        assert(pkt->getSize() == sizeof(uint32_t));
+        gitsCbaser.high = pkt->getLE<uint32_t>();
+
         gitsCreadr = 0; // Cleared when CBASER gets written
 
         checkCommandQueue();
         break;
 
       case GITS_CWRITER:
-        assert(pkt->getSize() == sizeof(uint64_t));
-        gitsCwriter = pkt->getLE<uint64_t>();
+        if (pkt->getSize() == sizeof(uint32_t)) {
+            gitsCwriter.low = pkt->getLE<uint32_t>();
+        } else {
+            assert(pkt->getSize() == sizeof(uint64_t));
+            gitsCwriter = pkt->getLE<uint64_t>();
+        }
+
+        checkCommandQueue();
+        break;
+
+      case GITS_CWRITER + 4:
+        assert(pkt->getSize() == sizeof(uint32_t));
+        gitsCwriter.high = pkt->getLE<uint32_t>();
 
         checkCommandQueue();
         break;
@@ -903,12 +964,12 @@ Gicv3Its::write(PacketPtr pkt)
             auto relative_addr = addr - GITS_BASER.start();
             auto baser_index = relative_addr / sizeof(uint64_t);
 
-            BASER val = pkt->getLE<uint64_t>();
+            const uint64_t table_base = tableBases[baser_index];
+            const uint64_t w_mask = tableBases[baser_index].type ?
+                BASER_WMASK : BASER_WMASK_UNIMPL;
+            const uint64_t val = pkt->getLE<uint64_t>() & w_mask;
 
-            panic_if(val.indirect,
-                "We currently don't support two level ITS tables");
-
-            tableBases[baser_index] = val;
+            tableBases[baser_index] = table_base | val;
             break;
         } else {
             panic("Unrecognized register access\n");
@@ -1002,11 +1063,15 @@ Gicv3Its::incrementReadPointer()
     gitsCreadr.offset = gitsCreadr.offset + 1;
 
     // Check for wrapping
-    auto queue_end = (4096 * (gitsCbaser.size + 1));
-
-    if (gitsCreadr.offset == queue_end) {
+    if (gitsCreadr.offset == maxCommands()) {
         gitsCreadr.offset = 0;
     }
+}
+
+uint64_t
+Gicv3Its::maxCommands() const
+{
+    return (4096 * (gitsCbaser.size + 1)) / sizeof(ItsCommand::CommandEntry);
 }
 
 void
@@ -1014,6 +1079,13 @@ Gicv3Its::checkCommandQueue()
 {
     if (!gitsControl.enabled || !gitsCbaser.valid)
         return;
+
+    // If GITS_CWRITER gets set by sw to a value bigger than the
+    // allowed one, the command queue should stop processing commands
+    // until the register gets reset to an allowed one
+    if (gitsCwriter.offset >= maxCommands()) {
+        return;
+    }
 
     if (gitsCwriter.offset != gitsCreadr.offset) {
         // writer and reader pointing to different command
@@ -1169,7 +1241,16 @@ Gicv3Its::getRedistributor(uint64_t rd_base)
 Addr
 Gicv3Its::pageAddress(Gicv3Its::ItsTables table)
 {
-    const BASER base = tableBases[table];
+    auto base_it = std::find_if(
+        tableBases.begin(), tableBases.end(),
+        [table] (const BASER &b) { return b.type == table; }
+    );
+
+    panic_if(base_it == tableBases.end(),
+        "ITS Table not recognised\n");
+
+    const BASER base = *base_it;
+
     // real address depends on page size
     switch (base.pageSize) {
       case SIZE_4K:
@@ -1203,7 +1284,7 @@ Gicv3Its::moveAllPendingState(
         rd1->lpiPendingTablePtr,
         0, sizeof(lpi_pending_table));
 
-    rd2->updateAndInformCPUInterface();
+    rd2->updateDistributor();
 }
 
 Gicv3Its *

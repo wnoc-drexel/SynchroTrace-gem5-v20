@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
  /**
@@ -45,13 +43,16 @@
 
 #include <vector>
 
+#include "base/circular_queue.hh"
 #include "base/sat_counter.hh"
 #include "mem/cache/prefetch/associative_set.hh"
 #include "mem/cache/prefetch/queued.hh"
 
 struct STeMSPrefetcherParams;
 
-class STeMSPrefetcher : public QueuedPrefetcher
+namespace Prefetcher {
+
+class STeMS : public Queued
 {
     /** Size of each spatial region */
     const size_t spatialRegionSize;
@@ -86,12 +87,16 @@ class STeMSPrefetcher : public QueuedPrefetcher
         /** Sequence of accesses */
         std::vector<SequenceEntry> sequence;
 
-        ActiveGenerationTableEntry(int num_positions) : paddress(0), pc(0),
+        ActiveGenerationTableEntry(int num_positions)
+          : TaggedEntry(), paddress(0), pc(0),
             seqCounter(0), sequence(num_positions)
-        {}
-
-        void reset() override
         {
+        }
+
+        void
+        invalidate() override
+        {
+            TaggedEntry::invalidate();
             paddress = 0;
             pc = 0;
             seqCounter = 0;
@@ -157,14 +162,10 @@ class STeMSPrefetcher : public QueuedPrefetcher
         Addr pstAddress;
         /** Delta within the global miss order sequence */
         unsigned int delta;
-        /** Valid bit */
-        bool valid;
     };
 
     /** Region Miss Order Buffer (RMOB) */
-    std::vector<RegionMissOrderBufferEntry> rmob;
-    /** First free position (or older, if it is full) of the RMOB */
-    unsigned int rmobHead;
+    CircularQueue<RegionMissOrderBufferEntry> rmob;
 
     /** Counter to keep the count of accesses between trigger accesses */
     unsigned int lastTriggerCounter;
@@ -182,16 +183,22 @@ class STeMSPrefetcher : public QueuedPrefetcher
     /**
      * Reconstructs a sequence of accesses and generates the prefetch
      * addresses, adding them to the addresses vector
-     * @param rmob_idx rmob position to start generating from
+     *
+     * @param rmob_it rmob position to start generating from.
      * @param addresses vector to add the addresses to be prefetched
      */
-    void reconstructSequence(unsigned int rmob_idx,
-                             std::vector<AddrPriority> &addresses);
+    void reconstructSequence(
+        CircularQueue<RegionMissOrderBufferEntry>::iterator rmob_it,
+        std::vector<AddrPriority> &addresses);
+
   public:
-    STeMSPrefetcher(const STeMSPrefetcherParams* p);
-    ~STeMSPrefetcher() {}
+    STeMS(const STeMSPrefetcherParams* p);
+    ~STeMS() = default;
+
     void calculatePrefetch(const PrefetchInfo &pfi,
                            std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
 
 #endif//__MEM_CACHE_PREFETCH_SPATIO_TEMPORAL_MEMORY_STREAMING_HH__

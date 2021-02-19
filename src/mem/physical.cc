@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
  */
 
 #include "mem/physical.hh"
@@ -73,8 +71,10 @@ using namespace std;
 
 PhysicalMemory::PhysicalMemory(const string& _name,
                                const vector<AbstractMemory*>& _memories,
-                               bool mmap_using_noreserve) :
-    _name(_name), size(0), mmapUsingNoReserve(mmap_using_noreserve)
+                               bool mmap_using_noreserve,
+                               const std::string& shared_backstore) :
+    _name(_name), size(0), mmapUsingNoReserve(mmap_using_noreserve),
+    sharedBackstore(shared_backstore)
 {
     if (mmap_using_noreserve)
         warn("Not reserving swap space. May cause SIGSEGV on actual usage\n");
@@ -194,7 +194,23 @@ PhysicalMemory::createBackingStore(AddrRange range,
     // perform the actual mmap
     DPRINTF(AddrRanges, "Creating backing store for range %s with size %d\n",
             range.to_string(), range.size());
-    int map_flags = MAP_ANON | MAP_PRIVATE;
+
+    int shm_fd;
+    int map_flags;
+
+    if (sharedBackstore.empty()) {
+        shm_fd = -1;
+        map_flags =  MAP_ANON | MAP_PRIVATE;
+    } else {
+        DPRINTF(AddrRanges, "Sharing backing store as %s\n",
+                sharedBackstore.c_str());
+        shm_fd = shm_open(sharedBackstore.c_str(), O_CREAT | O_RDWR, 0666);
+        if (shm_fd == -1)
+               panic("Shared memory failed");
+        if (ftruncate(shm_fd, range.size()))
+               panic("Setting size of shared memory failed");
+        map_flags = MAP_SHARED;
+    }
 
     // to be able to simulate very large memories, the user can opt to
     // pass noreserve to mmap
@@ -204,7 +220,7 @@ PhysicalMemory::createBackingStore(AddrRange range,
 
     uint8_t* pmem = (uint8_t*) mmap(NULL, range.size(),
                                     PROT_READ | PROT_WRITE,
-                                    map_flags, -1, 0);
+                                    map_flags, shm_fd, 0);
 
     if (pmem == (uint8_t*) MAP_FAILED) {
         perror("mmap");
@@ -403,7 +419,7 @@ PhysicalMemory::unserializeStore(CheckpointIn &cp)
 
     string filename;
     UNSERIALIZE_SCALAR(filename);
-    string filepath = cp.cptDir + "/" + filename;
+    string filepath = cp.getCptDir() + "/" + filename;
 
     // mmap memoryfile
     gzFile compressed_mem = gzopen(filepath.c_str(), "rb");

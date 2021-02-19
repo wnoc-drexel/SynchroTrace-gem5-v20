@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ali Saidi
 
 from m5.SimObject import SimObject
 from m5.params import *
@@ -35,7 +33,7 @@ from m5.objects.PciDevice import PciDevice
 class CopyEngine(PciDevice):
     type = 'CopyEngine'
     cxx_header = "dev/pci/copy_engine.hh"
-    dma = VectorMasterPort("Copy engine DMA port")
+    dma = VectorRequestPort("Copy engine DMA port")
     VendorID = 0x8086
     DeviceID = 0x1a38
     Revision = 0xA2 # CM2 stepping (newest listed)

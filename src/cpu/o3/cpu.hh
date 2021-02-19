@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2013, 2016-2019 ARM Limited
+ * Copyright (c) 2011-2013, 2016-2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -38,10 +38,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
- *          Rick Strong
  */
 
 #ifndef __CPU_O3_CPU_HH__
@@ -65,7 +61,6 @@
 #include "cpu/base.hh"
 #include "cpu/simple_thread.hh"
 #include "cpu/timebuf.hh"
-//#include "cpu/o3/thread_context.hh"
 #include "params/DerivO3CPU.hh"
 #include "sim/process.hh"
 
@@ -133,74 +128,6 @@ class FullO3CPU : public BaseO3CPU
 
   private:
 
-    /**
-     * IcachePort class for instruction fetch.
-     */
-    class IcachePort : public MasterPort
-    {
-      protected:
-        /** Pointer to fetch. */
-        DefaultFetch<Impl> *fetch;
-
-      public:
-        /** Default constructor. */
-        IcachePort(DefaultFetch<Impl> *_fetch, FullO3CPU<Impl>* _cpu)
-            : MasterPort(_cpu->name() + ".icache_port", _cpu), fetch(_fetch)
-        { }
-
-      protected:
-
-        /** Timing version of receive.  Handles setting fetch to the
-         * proper status to start fetching. */
-        virtual bool recvTimingResp(PacketPtr pkt);
-
-        /** Handles doing a retry of a failed fetch. */
-        virtual void recvReqRetry();
-    };
-
-    /**
-     * DcachePort class for the load/store queue.
-     */
-    class DcachePort : public MasterPort
-    {
-      protected:
-
-        /** Pointer to LSQ. */
-        LSQ<Impl> *lsq;
-        FullO3CPU<Impl> *cpu;
-
-      public:
-        /** Default constructor. */
-        DcachePort(LSQ<Impl> *_lsq, FullO3CPU<Impl>* _cpu)
-            : MasterPort(_cpu->name() + ".dcache_port", _cpu), lsq(_lsq),
-              cpu(_cpu)
-        { }
-
-      protected:
-
-        /** Timing version of receive.  Handles writing back and
-         * completing the load or store that has returned from
-         * memory. */
-        virtual bool recvTimingResp(PacketPtr pkt);
-        virtual void recvTimingSnoopReq(PacketPtr pkt);
-
-        virtual void recvFunctionalSnoop(PacketPtr pkt)
-        {
-            // @todo: Is there a need for potential invalidation here?
-        }
-
-        /** Handles doing a retry of the previous send. */
-        virtual void recvReqRetry();
-
-        /**
-         * As this CPU requires snooping to maintain the load store queue
-         * change the behaviour from the base CPU port.
-         *
-         * @return true since we have to snoop
-         */
-        virtual bool isSnooping() const { return true; }
-    };
-
     /** The tick event used for scheduling CPU ticks. */
     EventFunctionWrapper tickEvent;
 
@@ -248,7 +175,7 @@ class FullO3CPU : public BaseO3CPU
     void drainSanityCheck() const;
 
     /** Check if a system is in a drained state. */
-    bool isDrained() const;
+    bool isCpuDrained() const;
 
   public:
     /** Constructs a CPU with the given parameters. */
@@ -352,7 +279,7 @@ class FullO3CPU : public BaseO3CPU
     /** Executes a syscall.
      * @todo: Determine if this needs to be virtual.
      */
-    void syscall(int64_t callnum, ThreadID tid, Fault *fault);
+    void syscall(ThreadID tid);
 
     /** Starts draining the CPU's pipeline of all instructions in
      * order to stop all memory accesses. */
@@ -384,6 +311,12 @@ class FullO3CPU : public BaseO3CPU
 
     /** Traps to handle given fault. */
     void trap(const Fault &fault, ThreadID tid, const StaticInstPtr &inst);
+
+    /**
+     * Mark vector fields in scoreboard as ready right after switching
+     * vector mode, since software may read vectors at this time.
+     */
+    void setVectorsAsReady(ThreadID tid);
 
     /** Check if a change in renaming is needed for vector registers.
      * The vecMode variable is updated and propagated to rename maps.
@@ -672,12 +605,6 @@ class FullO3CPU : public BaseO3CPU
 
     std::vector<TheISA::ISA *> isa;
 
-    /** Instruction port. Note that it has to appear after the fetch stage. */
-    IcachePort icachePort;
-
-    /** Data port. Note that it has to appear after the iew stages */
-    DcachePort dcachePort;
-
   public:
     /** Enum to give each stage a specific index, so when calling
      *  activateStage() or deactivateStage(), they can specify which stage
@@ -787,13 +714,13 @@ class FullO3CPU : public BaseO3CPU
     /** CPU pushRequest function, forwards request to LSQ. */
     Fault pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                       unsigned int size, Addr addr, Request::Flags flags,
-                      uint64_t *res, AtomicOpFunctor *amo_op = nullptr,
-                      const std::vector<bool>& byteEnable =
+                      uint64_t *res, AtomicOpFunctorPtr amo_op = nullptr,
+                      const std::vector<bool>& byte_enable =
                           std::vector<bool>())
 
     {
         return iew.ldstQueue.pushRequest(inst, isLoad, data, size, addr,
-                flags, res, amo_op, byteEnable);
+                flags, res, std::move(amo_op), byte_enable);
     }
 
     /** CPU read function, forwards read to LSQ. */
@@ -809,10 +736,18 @@ class FullO3CPU : public BaseO3CPU
     }
 
     /** Used by the fetch unit to get a hold of the instruction port. */
-    MasterPort &getInstPort() override { return icachePort; }
+    Port &
+    getInstPort() override
+    {
+        return this->fetch.getInstPort();
+    }
 
     /** Get the dcache port (used to find block size for translations). */
-    MasterPort &getDataPort() override { return dcachePort; }
+    Port &
+    getDataPort() override
+    {
+        return this->iew.ldstQueue.getDataPort();
+    }
 
     /** Stat for total number of times the CPU is descheduled. */
     Stats::Scalar timesIdled;
@@ -852,6 +787,11 @@ class FullO3CPU : public BaseO3CPU
     //number of misc
     Stats::Scalar miscRegfileReads;
     Stats::Scalar miscRegfileWrites;
+
+  public:
+    // hardware transactional memory
+    void htmSendAbortSignal(ThreadID tid, uint64_t htm_uid,
+                            HtmFailureFaultCause cause);
 };
 
 #endif // __CPU_O3_CPU_HH__

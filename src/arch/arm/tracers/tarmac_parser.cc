@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011,2017-2018 ARM Limited
+ * Copyright (c) 2011,2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Gabrielli
  */
 
 #include <algorithm>
@@ -50,8 +48,8 @@
 #include "config/the_isa.hh"
 #include "cpu/static_inst.hh"
 #include "cpu/thread_context.hh"
-#include "mem/fs_translating_port_proxy.hh"
 #include "mem/packet.hh"
+#include "mem/port_proxy.hh"
 #include "sim/core.hh"
 #include "sim/faults.hh"
 #include "sim/sim_exit.hh"
@@ -63,6 +61,7 @@ namespace Trace {
 
 // TARMAC Parser static variables
 const int TarmacParserRecord::MaxLineLength;
+int8_t TarmacParserRecord::maxVectorLength = 0;
 
 TarmacParserRecord::ParserInstEntry TarmacParserRecord::instRecord;
 TarmacParserRecord::ParserRegEntry TarmacParserRecord::regRecord;
@@ -94,23 +93,81 @@ TarmacParserRecord::MiscRegMap TarmacParserRecord::miscRegMap = {
     { "dbgbvr3", MISCREG_DBGBVR3 },
     { "dbgbvr4", MISCREG_DBGBVR4 },
     { "dbgbvr5", MISCREG_DBGBVR5 },
+    { "dbgbvr6", MISCREG_DBGBVR6 },
+    { "dbgbvr7", MISCREG_DBGBVR7 },
+    { "dbgbvr8", MISCREG_DBGBVR8 },
+    { "dbgbvr9", MISCREG_DBGBVR9 },
+    { "dbgbvr10", MISCREG_DBGBVR10 },
+    { "dbgbvr11", MISCREG_DBGBVR11 },
+    { "dbgbvr12", MISCREG_DBGBVR12 },
+    { "dbgbvr13", MISCREG_DBGBVR13 },
+    { "dbgbvr14", MISCREG_DBGBVR14 },
+    { "dbgbvr15", MISCREG_DBGBVR15 },
     { "dbgbcr0", MISCREG_DBGBCR0 },
     { "dbgbcr1", MISCREG_DBGBCR1 },
     { "dbgbcr2", MISCREG_DBGBCR2 },
     { "dbgbcr3", MISCREG_DBGBCR3 },
     { "dbgbcr4", MISCREG_DBGBCR4 },
     { "dbgbcr5", MISCREG_DBGBCR5 },
+    { "dbgbcr6", MISCREG_DBGBCR6 },
+    { "dbgbcr7", MISCREG_DBGBCR7 },
+    { "dbgbcr8", MISCREG_DBGBCR8 },
+    { "dbgbcr9", MISCREG_DBGBCR9 },
+    { "dbgbcr10", MISCREG_DBGBCR10 },
+    { "dbgbcr11", MISCREG_DBGBCR11 },
+    { "dbgbcr12", MISCREG_DBGBCR12 },
+    { "dbgbcr13", MISCREG_DBGBCR13 },
+    { "dbgbcr14", MISCREG_DBGBCR14 },
+    { "dbgbcr15", MISCREG_DBGBCR15 },
     { "dbgwvr0", MISCREG_DBGWVR0 },
     { "dbgwvr1", MISCREG_DBGWVR1 },
     { "dbgwvr2", MISCREG_DBGWVR2 },
     { "dbgwvr3", MISCREG_DBGWVR3 },
+    { "dbgwvr4", MISCREG_DBGWVR4 },
+    { "dbgwvr5", MISCREG_DBGWVR5 },
+    { "dbgwvr6", MISCREG_DBGWVR6 },
+    { "dbgwvr7", MISCREG_DBGWVR7 },
+    { "dbgwvr8", MISCREG_DBGWVR8 },
+    { "dbgwvr9", MISCREG_DBGWVR9 },
+    { "dbgwvr10", MISCREG_DBGWVR10 },
+    { "dbgwvr11", MISCREG_DBGWVR11 },
+    { "dbgwvr12", MISCREG_DBGWVR12 },
+    { "dbgwvr13", MISCREG_DBGWVR13 },
+    { "dbgwvr14", MISCREG_DBGWVR14 },
+    { "dbgwvr15", MISCREG_DBGWVR15 },
     { "dbgwcr0", MISCREG_DBGWCR0 },
     { "dbgwcr1", MISCREG_DBGWCR1 },
     { "dbgwcr2", MISCREG_DBGWCR2 },
     { "dbgwcr3", MISCREG_DBGWCR3 },
+    { "dbgwcr4", MISCREG_DBGWCR4 },
+    { "dbgwcr5", MISCREG_DBGWCR5 },
+    { "dbgwcr6", MISCREG_DBGWCR6 },
+    { "dbgwcr7", MISCREG_DBGWCR7 },
+    { "dbgwcr8", MISCREG_DBGWCR8 },
+    { "dbgwcr9", MISCREG_DBGWCR9 },
+    { "dbgwcr10", MISCREG_DBGWCR10 },
+    { "dbgwcr11", MISCREG_DBGWCR11 },
+    { "dbgwcr12", MISCREG_DBGWCR12 },
+    { "dbgwcr13", MISCREG_DBGWCR13 },
+    { "dbgwcr14", MISCREG_DBGWCR14 },
+    { "dbgwcr15", MISCREG_DBGWCR15 },
     { "dbgdrar", MISCREG_DBGDRAR },
+    { "dbgbxvr0", MISCREG_DBGBXVR0 },
+    { "dbgbxvr1", MISCREG_DBGBXVR1 },
+    { "dbgbxvr2", MISCREG_DBGBXVR2 },
+    { "dbgbxvr3", MISCREG_DBGBXVR3 },
     { "dbgbxvr4", MISCREG_DBGBXVR4 },
     { "dbgbxvr5", MISCREG_DBGBXVR5 },
+    { "dbgbxvr6", MISCREG_DBGBXVR6 },
+    { "dbgbxvr7", MISCREG_DBGBXVR7 },
+    { "dbgbxvr8", MISCREG_DBGBXVR8 },
+    { "dbgbxvr9", MISCREG_DBGBXVR9 },
+    { "dbgbxvr10", MISCREG_DBGBXVR10 },
+    { "dbgbxvr11", MISCREG_DBGBXVR11 },
+    { "dbgbxvr12", MISCREG_DBGBXVR12 },
+    { "dbgbxvr13", MISCREG_DBGBXVR13 },
+    { "dbgbxvr14", MISCREG_DBGBXVR14 },
+    { "dbgbxvr15", MISCREG_DBGBXVR15 },
     { "dbgoslar", MISCREG_DBGOSLAR },
     { "dbgoslsr", MISCREG_DBGOSLSR },
     { "dbgosdlr", MISCREG_DBGOSDLR },
@@ -167,6 +224,7 @@ TarmacParserRecord::MiscRegMap TarmacParserRecord::miscRegMap = {
     { "hsctlr", MISCREG_HSCTLR },
     { "hactlr", MISCREG_HACTLR },
     { "hcr", MISCREG_HCR },
+    { "hcr2", MISCREG_HCR2 },
     { "hdcr", MISCREG_HDCR },
     { "hcptr", MISCREG_HCPTR },
     { "hstr", MISCREG_HSTR },
@@ -354,20 +412,64 @@ TarmacParserRecord::MiscRegMap TarmacParserRecord::miscRegMap = {
     { "dbgbvr3_el1", MISCREG_DBGBVR3_EL1 },
     { "dbgbvr4_el1", MISCREG_DBGBVR4_EL1 },
     { "dbgbvr5_el1", MISCREG_DBGBVR5_EL1 },
+    { "dbgbvr6_el1", MISCREG_DBGBVR6_EL1 },
+    { "dbgbvr7_el1", MISCREG_DBGBVR7_EL1 },
+    { "dbgbvr8_el1", MISCREG_DBGBVR8_EL1 },
+    { "dbgbvr9_el1", MISCREG_DBGBVR9_EL1 },
+    { "dbgbvr10_el1", MISCREG_DBGBVR10_EL1 },
+    { "dbgbvr11_el1", MISCREG_DBGBVR11_EL1 },
+    { "dbgbvr12_el1", MISCREG_DBGBVR12_EL1 },
+    { "dbgbvr13_el1", MISCREG_DBGBVR13_EL1 },
+    { "dbgbvr14_el1", MISCREG_DBGBVR14_EL1 },
+    { "dbgbvr15_el1", MISCREG_DBGBVR15_EL1 },
     { "dbgbcr0_el1", MISCREG_DBGBCR0_EL1 },
     { "dbgbcr1_el1", MISCREG_DBGBCR1_EL1 },
     { "dbgbcr2_el1", MISCREG_DBGBCR2_EL1 },
     { "dbgbcr3_el1", MISCREG_DBGBCR3_EL1 },
     { "dbgbcr4_el1", MISCREG_DBGBCR4_EL1 },
     { "dbgbcr5_el1", MISCREG_DBGBCR5_EL1 },
+    { "dbgbcr6_el1", MISCREG_DBGBCR6_EL1 },
+    { "dbgbcr7_el1", MISCREG_DBGBCR7_EL1 },
+    { "dbgbcr8_el1", MISCREG_DBGBCR8_EL1 },
+    { "dbgbcr9_el1", MISCREG_DBGBCR9_EL1 },
+    { "dbgbcr10_el1", MISCREG_DBGBCR10_EL1 },
+    { "dbgbcr11_el1", MISCREG_DBGBCR11_EL1 },
+    { "dbgbcr12_el1", MISCREG_DBGBCR12_EL1 },
+    { "dbgbcr13_el1", MISCREG_DBGBCR13_EL1 },
+    { "dbgbcr14_el1", MISCREG_DBGBCR14_EL1 },
+    { "dbgbcr15_el1", MISCREG_DBGBCR15_EL1 },
     { "dbgwvr0_el1", MISCREG_DBGWVR0_EL1 },
     { "dbgwvr1_el1", MISCREG_DBGWVR1_EL1 },
     { "dbgwvr2_el1", MISCREG_DBGWVR2_EL1 },
     { "dbgwvr3_el1", MISCREG_DBGWVR3_EL1 },
+    { "dbgwvr4_el1", MISCREG_DBGWVR4_EL1 },
+    { "dbgwvr5_el1", MISCREG_DBGWVR5_EL1 },
+    { "dbgwvr6_el1", MISCREG_DBGWVR6_EL1 },
+    { "dbgwvr7_el1", MISCREG_DBGWVR7_EL1 },
+    { "dbgwvr8_el1", MISCREG_DBGWVR8_EL1 },
+    { "dbgwvr9_el1", MISCREG_DBGWVR9_EL1 },
+    { "dbgwvr10_el1", MISCREG_DBGWVR10_EL1 },
+    { "dbgwvr11_el1", MISCREG_DBGWVR11_EL1 },
+    { "dbgwvr12_el1", MISCREG_DBGWVR12_EL1 },
+    { "dbgwvr13_el1", MISCREG_DBGWVR13_EL1 },
+    { "dbgwvr14_el1", MISCREG_DBGWVR14_EL1 },
+    { "dbgwvr15_el1", MISCREG_DBGWVR15_EL1 },
     { "dbgwcr0_el1", MISCREG_DBGWCR0_EL1 },
     { "dbgwcr1_el1", MISCREG_DBGWCR1_EL1 },
     { "dbgwcr2_el1", MISCREG_DBGWCR2_EL1 },
     { "dbgwcr3_el1", MISCREG_DBGWCR3_EL1 },
+    { "dbgwcr4_el1", MISCREG_DBGWCR4_EL1 },
+    { "dbgwcr5_el1", MISCREG_DBGWCR5_EL1 },
+    { "dbgwcr6_el1", MISCREG_DBGWCR6_EL1 },
+    { "dbgwcr7_el1", MISCREG_DBGWCR7_EL1 },
+    { "dbgwcr8_el1", MISCREG_DBGWCR8_EL1 },
+    { "dbgwcr9_el1", MISCREG_DBGWCR9_EL1 },
+    { "dbgwcr10_el1", MISCREG_DBGWCR10_EL1 },
+    { "dbgwcr11_el1", MISCREG_DBGWCR11_EL1 },
+    { "dbgwcr12_el1", MISCREG_DBGWCR12_EL1 },
+    { "dbgwcr13_el1", MISCREG_DBGWCR13_EL1 },
+    { "dbgwcr14_el1", MISCREG_DBGWCR14_EL1 },
+    { "dbgwcr15_el1", MISCREG_DBGWCR15_EL1 },
     { "mdccsr_el0", MISCREG_MDCCSR_EL0 },
     { "mddtr_el0", MISCREG_MDDTR_EL0 },
     { "mddtrtx_el0", MISCREG_MDDTRTX_EL0 },
@@ -636,47 +738,98 @@ TarmacParserRecord::TarmacParserRecordEvent::process()
     list<ParserRegEntry>::iterator it = destRegRecords.begin(),
                                    end = destRegRecords.end();
 
-    uint64_t value_hi, value_lo;
-    bool check_value_hi = false;
+    std::vector<uint64_t> values;
 
     for (; it != end; ++it) {
+        values.clear();
         switch (it->type) {
           case REG_R:
           case REG_X:
-            value_lo = thread->readIntReg(it->index);
+            values.push_back(thread->readIntReg(it->index));
             break;
           case REG_S:
-            if (instRecord.isetstate == ISET_A64)
-                value_lo = thread->readFloatReg(it->index * 4);
-            else
-                value_lo = thread->readFloatReg(it->index);
+            if (instRecord.isetstate == ISET_A64) {
+                const ArmISA::VecRegContainer& vc = thread->readVecReg(
+                    RegId(VecRegClass, it->index));
+                auto vv = vc.as<uint32_t>();
+                values.push_back(vv[0]);
+            } else {
+                const VecElem elem = thread->readVecElem(
+                    RegId(VecElemClass,
+                        it->index / NumVecElemPerNeonVecReg,
+                        it->index % NumVecElemPerNeonVecReg));
+                values.push_back(elem);
+            }
             break;
           case REG_D:
-            if (instRecord.isetstate == ISET_A64)
-                value_lo = thread->readFloatReg(it->index * 4) |
-                    (uint64_t) thread->readFloatReg(it->index * 4 + 1) <<
-                    32;
-            else
-                value_lo = thread->readFloatReg(it->index * 2) |
-                    (uint64_t) thread->readFloatReg(it->index * 2 + 1) <<
-                    32;
+            if (instRecord.isetstate == ISET_A64) {
+                const ArmISA::VecRegContainer& vc = thread->readVecReg(
+                    RegId(VecRegClass, it->index));
+                auto vv = vc.as<uint64_t>();
+                values.push_back(vv[0]);
+            } else {
+                const VecElem w0 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        it->index / NumVecElemPerNeonVecReg,
+                        it->index % NumVecElemPerNeonVecReg));
+                const VecElem w1 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        (it->index + 1) / NumVecElemPerNeonVecReg,
+                        (it->index + 1) % NumVecElemPerNeonVecReg));
+
+                values.push_back((uint64_t)(w1) << 32 | w0);
+            }
+            break;
+          case REG_P:
+            {
+                const ArmISA::VecPredRegContainer& pc =
+                    thread->readVecPredReg(RegId(VecPredRegClass, it->index));
+                auto pv = pc.as<uint8_t>();
+                uint64_t p = 0;
+                for (int i = maxVectorLength * 8; i > 0; ) {
+                    p = (p << 1) | pv[--i];
+                }
+                values.push_back(p);
+            }
             break;
           case REG_Q:
-            check_value_hi = true;
             if (instRecord.isetstate == ISET_A64) {
-                value_lo = thread->readFloatReg(it->index * 4) |
-                    (uint64_t) thread->readFloatReg(it->index * 4 + 1) <<
-                    32;
-                value_hi = thread->readFloatReg(it->index * 4 + 2) |
-                    (uint64_t) thread->readFloatReg(it->index * 4 + 3) <<
-                    32;
+                const ArmISA::VecRegContainer& vc = thread->readVecReg(
+                    RegId(VecRegClass, it->index));
+                auto vv = vc.as<uint64_t>();
+                values.push_back(vv[0]);
+                values.push_back(vv[1]);
             } else {
-                value_lo = thread->readFloatReg(it->index * 2) |
-                    (uint64_t) thread->readFloatReg(it->index * 2 + 1) <<
-                    32;
-                value_hi = thread->readFloatReg(it->index * 2 + 2) |
-                    (uint64_t) thread->readFloatReg(it->index * 2 + 3) <<
-                    32;
+                const VecElem w0 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        it->index / NumVecElemPerNeonVecReg,
+                        it->index % NumVecElemPerNeonVecReg));
+                const VecElem w1 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        (it->index + 1) / NumVecElemPerNeonVecReg,
+                        (it->index + 1) % NumVecElemPerNeonVecReg));
+                const VecElem w2 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        (it->index + 2) / NumVecElemPerNeonVecReg,
+                        (it->index + 2) % NumVecElemPerNeonVecReg));
+                const VecElem w3 = thread->readVecElem(
+                    RegId(VecElemClass,
+                        (it->index + 3) / NumVecElemPerNeonVecReg,
+                        (it->index + 3) % NumVecElemPerNeonVecReg));
+
+                values.push_back((uint64_t)(w1) << 32 | w0);
+                values.push_back((uint64_t)(w3) << 32 | w2);
+            }
+            break;
+          case REG_Z:
+            {
+                int8_t i = maxVectorLength;
+                const TheISA::VecRegContainer& vc = thread->readVecReg(
+                    RegId(VecRegClass, it->index));
+                auto vv = vc.as<uint64_t>();
+                while (i > 0) {
+                    values.push_back(vv[--i]);
+                }
             }
             break;
           case REG_MISC:
@@ -687,41 +840,86 @@ TarmacParserRecord::TarmacParserRecordEvent::process()
                 cpsr.c = thread->readCCReg(CCREG_C);
                 cpsr.v = thread->readCCReg(CCREG_V);
                 cpsr.ge = thread->readCCReg(CCREG_GE);
-                value_lo = cpsr;
+                values.push_back(cpsr);
             } else if (it->index == MISCREG_NZCV) {
                 CPSR cpsr = 0;
                 cpsr.nz = thread->readCCReg(CCREG_NZ);
                 cpsr.c = thread->readCCReg(CCREG_C);
                 cpsr.v = thread->readCCReg(CCREG_V);
-                value_lo = cpsr;
+                values.push_back(cpsr);
+            } else if (it->index == MISCREG_FPCR) {
+                // Read FPSCR and extract FPCR value
+                FPSCR fpscr = thread->readMiscRegNoEffect(MISCREG_FPSCR);
+                const uint32_t ones = (uint32_t)(-1);
+                FPSCR fpcrMask  = 0;
+                fpcrMask.ioe = ones;
+                fpcrMask.dze = ones;
+                fpcrMask.ofe = ones;
+                fpcrMask.ufe = ones;
+                fpcrMask.ixe = ones;
+                fpcrMask.ide = ones;
+                fpcrMask.len    = ones;
+                fpcrMask.stride = ones;
+                fpcrMask.rMode  = ones;
+                fpcrMask.fz     = ones;
+                fpcrMask.dn     = ones;
+                fpcrMask.ahp    = ones;
+                values.push_back(fpscr & fpcrMask);
+            } else if (it->index == MISCREG_FPSR) {
+                // Read FPSCR and extract FPSR value
+                FPSCR fpscr = thread->readMiscRegNoEffect(MISCREG_FPSCR);
+                const uint32_t ones = (uint32_t)(-1);
+                FPSCR fpsrMask  = 0;
+                fpsrMask.ioc = ones;
+                fpsrMask.dzc = ones;
+                fpsrMask.ofc = ones;
+                fpsrMask.ufc = ones;
+                fpsrMask.ixc = ones;
+                fpsrMask.idc = ones;
+                fpsrMask.qc = ones;
+                fpsrMask.v = ones;
+                fpsrMask.c = ones;
+                fpsrMask.z = ones;
+                fpsrMask.n = ones;
+                values.push_back(fpscr & fpsrMask);
             } else {
-                value_lo = thread->readMiscRegNoEffect(it->index);
+                values.push_back(thread->readMiscRegNoEffect(it->index));
             }
             break;
           default:
             panic("Unknown TARMAC trace record type!");
         }
 
-        if (value_lo != it->valueLo ||
-            (check_value_hi && (value_hi != it->valueHi))) {
-            if (!mismatch)
-                TarmacParserRecord::printMismatchHeader(inst, pc);
-            outs << "diff> [" << it->repr << "] gem5: 0x";
-            if (check_value_hi)
-                outs << hex << setfill('0') << setw(16) << value_hi
-                     << setfill('0') << setw(16) << value_lo;
-            else
-                outs << hex << value_lo;
-            outs << ", TARMAC: 0x";
-            if (check_value_hi)
-                outs << hex << setfill('0') << setw(16) << it->valueHi
-                     << setfill('0') << setw(16) << it->valueLo << endl;
-            else
-                outs << it->valueLo << endl;
-            mismatch = true;
+        bool same = true;
+        if (values.size() != it->values.size()) same = false;
+
+        uint32_t size = values.size();
+        if (size > it->values.size())
+            size = it->values.size();
+
+        if (same) {
+            for (int i = 0; i < size; ++i) {
+                if (values[i] != it->values[i]) {
+                    same = false;
+                    break;
+                }
+            }
         }
 
-        check_value_hi = false;
+        if (!same) {
+            if (!mismatch) {
+                TarmacParserRecord::printMismatchHeader(inst, pc);
+                mismatch = true;
+            }
+            outs << "diff> [" << it->repr << "] gem5: 0x" << hex;
+            for (auto v : values)
+                outs << setw(16) << setfill('0') << v;
+
+            outs << ", TARMAC: 0x" << hex;
+            for (auto v : it->values)
+                outs << setw(16) << setfill('0') << v;
+            outs << endl;
+        }
     }
     destRegRecords.clear();
 
@@ -766,6 +964,9 @@ TarmacParserRecord::TarmacParserRecord(Tick _when, ThreadContext *_thread,
       mismatchOnPcOrOpcode(false), parent(_parent)
 {
     memReq = std::make_shared<Request>();
+    if (maxVectorLength == 0) {
+        maxVectorLength = ArmStaticInst::getCurSveVecLen<uint64_t>(_thread);
+    }
 }
 
 void
@@ -773,11 +974,8 @@ TarmacParserRecord::dump()
 {
     ostream &outs = Trace::output();
 
-    // By default TARMAC splits memory accesses into 4-byte chunks (see
-    // 'loadstore-display-width' option in TARMAC plugin)
-    uint32_t written_data = 0;
-    unsigned mem_flags = ArmISA::TLB::MustBeOne | 3 |
-        ArmISA::TLB::AllowUnaligned;
+    uint64_t written_data = 0;
+    unsigned mem_flags = 3 | ArmISA::TLB::AllowUnaligned;
 
     ISetState isetstate;
 
@@ -936,9 +1134,10 @@ TarmacParserRecord::advanceTrace()
     } else if (buf[0] == 'R') {
         // Register trace record
         currRecordType = TARMAC_REG;
+        regRecord.values.clear();
         trace >> buf;
         strcpy(regRecord.repr, buf);
-        if (buf[0] == 'r' && isdigit(buf[1])) {
+        if (std::tolower(buf[0]) == 'r' && isdigit(buf[1])) {
             // R register
             regRecord.type = REG_R;
             int base_index = atoi(&buf[1]);
@@ -964,22 +1163,29 @@ TarmacParserRecord::advanceTrace()
                 else if (strncmp(pch, "hyp", 3) == 0)
                     regRecord.index = INTREG_HYP(base_index);
             }
-        // A64 register names are capitalized in AEM TARMAC, unlike A32
-        } else if (buf[0] == 'X' && isdigit(buf[1])) {
+        } else if (std::tolower(buf[0]) == 'x' && isdigit(buf[1])) {
             // X register (A64)
             regRecord.type = REG_X;
             regRecord.index = atoi(&buf[1]);
-        } else if (buf[0] == 's' && isdigit(buf[1])) {
+        } else if (std::tolower(buf[0]) == 's' && isdigit(buf[1])) {
             // S register
             regRecord.type = REG_S;
             regRecord.index = atoi(&buf[1]);
-        } else if (buf[0] == 'd' && isdigit(buf[1])) {
+        } else if (std::tolower(buf[0]) == 'd' && isdigit(buf[1])) {
             // D register
             regRecord.type = REG_D;
             regRecord.index = atoi(&buf[1]);
-        } else if (buf[0] == 'q' && isdigit(buf[1])) {
+        } else if (std::tolower(buf[0]) == 'q' && isdigit(buf[1])) {
             // Q register
             regRecord.type = REG_Q;
+            regRecord.index = atoi(&buf[1]);
+        } else if (std::tolower(buf[0]) == 'z' && isdigit(buf[1])) {
+            // Z (SVE vector) register
+            regRecord.type = REG_Z;
+            regRecord.index = atoi(&buf[1]);
+        } else if (std::tolower(buf[0]) == 'p' && isdigit(buf[1])) {
+            // P (SVE predicate) register
+            regRecord.type = REG_P;
             regRecord.index = atoi(&buf[1]);
         } else if (strncmp(buf, "SP_EL", 5) == 0) {
             // A64 stack pointer
@@ -1008,20 +1214,38 @@ TarmacParserRecord::advanceTrace()
         if (regRecord.type == REG_Q) {
             trace.ignore();
             trace.get(buf, 17);
-            // buf[16] = '\0';
-            regRecord.valueHi = strtoull(buf, NULL, 16);
+            uint64_t hi = strtoull(buf, NULL, 16);
             trace.get(buf, 17);
-            // buf[16] = '\0';
-            regRecord.valueLo = strtoull(buf, NULL, 16);
+            uint64_t lo = strtoull(buf, NULL, 16);
+            regRecord.values.push_back(lo);
+            regRecord.values.push_back(hi);
+        } else if (regRecord.type == REG_Z) {
+            regRecord.values.resize(maxVectorLength);
+            for (uint8_t i = 0; i < maxVectorLength; ++i) {
+                uint64_t v;
+                trace >> v;
+                char c;
+                trace >> c;
+                assert(c == '_');
+
+                uint64_t lsw = 0;
+                trace >> lsw;
+                v = (v << 32) | lsw;
+                if (i < maxVectorLength - 1) trace >> c;
+                regRecord.values[i] = v;
+            }
         } else {
-            trace >> regRecord.valueLo;
+            // REG_P values are also parsed here
+            uint64_t v;
+            trace >> v;
             char c = trace.peek();
-            if (c == ':') {
-                // 64-bit value with colon in the middle
+            if ((c == ':') || (c == '_')) {
+                // 64-bit value with : or _ in the middle
                 uint64_t lsw = 0;
                 trace >> c >> lsw;
-                regRecord.valueLo = (regRecord.valueLo << 32) | lsw;
+                v = (v << 32) | lsw;
             }
+            regRecord.values.push_back(v);
         }
         trace.ignore(MaxLineLength, '\n');
         buf[0] = 0;
@@ -1034,7 +1258,16 @@ TarmacParserRecord::advanceTrace()
             // Skip phys. address and _S/_NS suffix
             trace >> c >> buf;
         }
-        trace >> memRecord.data;
+        uint64_t data = 0;
+        trace >> data;
+        c = trace.peek();
+        if (c == '_') {
+            // 64-bit value with _ in the middle
+            uint64_t lsw = 0;
+            trace >> c >> lsw;
+            data = (data << 32) | lsw;
+        }
+        memRecord.data = data;
         trace.ignore(MaxLineLength, '\n');
         buf[0] = 0;
     } else {
@@ -1053,8 +1286,8 @@ TarmacParserRecord::readMemNoEffect(Addr addr, uint8_t *data, unsigned size,
     const RequestPtr &req = memReq;
     ArmISA::TLB* dtb = static_cast<TLB*>(thread->getDTBPtr());
 
-    req->setVirt(0, addr, size, flags, thread->pcState().instAddr(),
-                 Request::funcMasterId);
+    req->setVirt(addr, size, flags, thread->pcState().instAddr(),
+                 Request::funcRequestorId);
 
     // Translate to physical address
     Fault fault = dtb->translateAtomic(req, thread, BaseTLB::Read);
@@ -1066,8 +1299,8 @@ TarmacParserRecord::readMemNoEffect(Addr addr, uint8_t *data, unsigned size,
     // Now do the access
     if (fault == NoFault &&
         !req->getFlags().isSet(Request::NO_ACCESS)) {
-        if (req->isLLSC() || req->isMmappedIpr())
-            // LLSCs and mem. mapped IPRs are ignored
+        if (req->isLLSC() || req->isLocalAccess())
+            // LLSCs and local accesses are ignored
             return false;
         // the translating proxy will perform the virtual to physical
         // translation again

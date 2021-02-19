@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
  */
 
 /* @file
@@ -52,10 +49,10 @@
 #include <string>
 #include <vector>
 
+#include "base/stats/group.hh"
 #include "params/SimObject.hh"
 #include "sim/drain.hh"
 #include "sim/eventq.hh"
-#include "sim/eventq_impl.hh"
 #include "sim/port.hh"
 #include "sim/serialize.hh"
 
@@ -92,7 +89,8 @@ class ProbeManager;
  * SimObject.py). This has the effect of calling the method on the
  * parent node <i>before</i> its children.
  */
-class SimObject : public EventManager, public Serializable, public Drainable
+class SimObject : public EventManager, public Serializable, public Drainable,
+                  public Stats::Group
 {
   private:
     typedef std::vector<SimObject *> SimObjectList;
@@ -104,17 +102,34 @@ class SimObject : public EventManager, public Serializable, public Drainable
     ProbeManager *probeManager;
 
   protected:
-    /** Cached copy of the object parameters. */
+    /**
+     * Cached copy of the object parameters.
+     *
+     * @ingroup api_simobject
+     */
     const SimObjectParams *_params;
 
   public:
     typedef SimObjectParams Params;
+    /**
+     * @return This function returns the cached copy of the object parameters.
+     *
+     * @ingroup api_simobject
+     */
     const Params *params() const { return _params; }
+
+    /**
+     * @ingroup api_simobject
+     */
     SimObject(const Params *_params);
+
     virtual ~SimObject();
 
   public:
 
+    /**
+     * @ingroup api_simobject
+     */
     virtual const std::string name() const { return params()->name; }
 
     /**
@@ -122,6 +137,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * all ports are connected.  Initializations that are independent
      * of unserialization but rely on a fully instantiated and
      * connected SimObject graph should be done here.
+     *
+     * @ingroup api_simobject
      */
     virtual void init();
 
@@ -135,6 +152,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * found.
      *
      * @param cp Checkpoint to restore the state from.
+     *
+     * @ingroup api_serialize
      */
     virtual void loadState(CheckpointIn &cp);
 
@@ -142,31 +161,34 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * initState() is called on each SimObject when *not* restoring
      * from a checkpoint.  This provides a hook for state
      * initializations that are only required for a "cold start".
+     *
+     * @ingroup api_serialize
      */
     virtual void initState();
 
     /**
-     * Register statistics for this object.
-     */
-    virtual void regStats();
-
-    /**
-     * Reset statistics associated with this object.
-     */
-    virtual void resetStats();
-
-    /**
      * Register probe points for this object.
+     *
+     * @ingroup api_simobject
      */
     virtual void regProbePoints();
 
     /**
      * Register probe listeners for this object.
+     *
+     * @ingroup api_simobject
      */
     virtual void regProbeListeners();
 
     /**
      * Get the probe manager for this object.
+     *
+     * Probes generate traces. A trace is a file that
+     * keeps a log of events. For example, we can have a probe
+     * listener for an address and the trace will be a file that
+     * has time stamps for all the reads and writes to that address.
+     *
+     * @ingroup api_simobject
      */
     ProbeManager *getProbeManager();
 
@@ -174,10 +196,24 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * Get a port with a given name and index. This is used at binding time
      * and returns a reference to a protocol-agnostic port.
      *
+     * gem5 has a request and response port interface. All memory objects
+     * are connected together via ports. These ports provide a rigid
+     * interface between these memory objects. These ports implement
+     * three different memory system modes: timing, atomic, and
+     * functional. The most important mode is the timing mode and here
+     * timing mode is used for conducting cycle-level timing
+     * experiments. The other modes are only used in special
+     * circumstances and should *not* be used to conduct cycle-level
+     * timing experiments. The other modes are only used in special
+     * circumstances. These ports allow SimObjects to communicate with
+     * each other.
+     *
      * @param if_name Port name
      * @param idx Index in the case of a VectorPort
      *
      * @return A reference to the given port
+     *
+     * @ingroup api_simobject
      */
     virtual Port &getPort(const std::string &if_name,
                           PortID idx=InvalidPortID);
@@ -187,6 +223,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * All state is initialized (including unserialized state, if any,
      * such as the curTick() value), so this is the appropriate place to
      * schedule initial event(s) for objects that need them.
+     *
+     * @ingroup api_simobject
      */
     virtual void startup();
 
@@ -203,6 +241,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * written all its dirty data back to memory. This method is
      * typically used to prepare a system with caches for
      * checkpointing.
+     *
+     * @ingroup api_simobject
      */
     virtual void memWriteback() {};
 
@@ -216,6 +256,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      *
      * @warn This does <i>not</i> cause any dirty state to be written
      * back to memory.
+     *
+     * @ingroup api_simobject
      */
     virtual void memInvalidate() {};
 
@@ -237,6 +279,8 @@ class SimObject : public EventManager, public Serializable, public Drainable
      * Find the SimObject with the given name and return a pointer to
      * it.  Primarily used for interactive debugging.  Argument is
      * char* rather than std::string to make it callable from gdb.
+     *
+     * @ingroup api_simobject
      */
     static SimObject *find(const char *name);
 };
@@ -252,7 +296,11 @@ class SimObjectResolver
   public:
     virtual ~SimObjectResolver() { }
 
-    // Find a SimObject given a full path name
+    /**
+     * Find a SimObject given a full path name
+     *
+     * @ingroup api_serialize
+     */
     virtual SimObject *resolveSimObject(const std::string &name) = 0;
 };
 

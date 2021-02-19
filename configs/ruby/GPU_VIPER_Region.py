@@ -28,19 +28,21 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Sooraj Puthoor
 
+import six
 import math
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
 from m5.util import addToPath
-from Ruby import send_evicts
+from .Ruby import send_evicts
 
 addToPath('../')
 
 from topologies.Cluster import Cluster
+
+if six.PY3:
+    long = int
 
 class CntrlBase:
     _seqs = 0
@@ -75,7 +77,7 @@ class L1Cache(RubyCache):
     def create(self, size, assoc, options):
         self.size = MemorySize(size)
         self.assoc = assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class L2Cache(RubyCache):
     resourceStalls = False
@@ -85,7 +87,7 @@ class L2Cache(RubyCache):
     def create(self, size, assoc, options):
         self.size = MemorySize(size)
         self.assoc = assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class CPCntrl(CorePair_Controller, CntrlBase):
 
@@ -139,7 +141,7 @@ class TCPCache(RubyCache):
         self.dataAccessLatency = 4
         self.tagAccessLatency = 1
         self.resourceStalls = options.no_tcc_resource_stalls
-        self.replacement_policy = PseudoLRUReplacementPolicy(assoc = self.assoc)
+        self.replacement_policy = TreePLRURP(num_leaves = self.assoc)
 
 class TCPCntrl(TCP_Controller, CntrlBase):
 
@@ -156,6 +158,11 @@ class TCPCntrl(TCP_Controller, CntrlBase):
         self.coalescer.ruby_system = ruby_system
         self.coalescer.support_inst_reqs = False
         self.coalescer.is_cpu_sequencer = False
+        if options.tcp_deadlock_threshold:
+          self.coalescer.deadlock_threshold = \
+            options.tcp_deadlock_threshold
+        self.coalescer.max_coalesces_per_cycle = \
+            options.max_coalesces_per_cycle
 
         self.sequencer = RubySequencer()
         self.sequencer.version = self.seqCount()
@@ -179,7 +186,7 @@ class SQCCache(RubyCache):
     def create(self, options):
         self.size = MemorySize(options.sqc_size)
         self.assoc = options.sqc_assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy(assoc = self.assoc)
+        self.replacement_policy = TreePLRURP(num_leaves = self.assoc)
 
 class SQCCntrl(SQC_Controller, CntrlBase):
 
@@ -195,6 +202,10 @@ class SQCCntrl(SQC_Controller, CntrlBase):
         self.sequencer.ruby_system = ruby_system
         self.sequencer.support_data_reqs = False
         self.sequencer.is_cpu_sequencer = False
+        if options.sqc_deadlock_threshold:
+          self.sequencer.deadlock_threshold = \
+            options.sqc_deadlock_threshold
+
         self.ruby_system = ruby_system
         if options.recycle_latency:
             self.recycle_latency = options.recycle_latency
@@ -223,7 +234,7 @@ class TCC(RubyCache):
             self.size.value = long(128 * self.assoc)
         self.start_index_bit = math.log(options.cacheline_size, 2) + \
                                math.log(options.num_tccs, 2)
-        self.replacement_policy = PseudoLRUReplacementPolicy(assoc = self.assoc)
+        self.replacement_policy = TreePLRURP(num_leaves = self.assoc)
 
 class TCCCntrl(TCC_Controller, CntrlBase):
     def create(self, options, ruby_system, system):
@@ -249,7 +260,7 @@ class L3Cache(RubyCache):
         self.dataAccessLatency = options.l3_data_latency
         self.tagAccessLatency = options.l3_tag_latency
         self.resourceStalls = False
-        self.replacement_policy = PseudoLRUReplacementPolicy(assoc = self.assoc)
+        self.replacement_policy = TreePLRURP(num_leaves = self.assoc)
 
 class L3Cntrl(L3Cache_Controller, CntrlBase):
     def create(self, options, ruby_system, system):
@@ -271,31 +282,19 @@ class L3Cntrl(L3Cache_Controller, CntrlBase):
         self.probeToL3 = probe_to_l3
         self.respToL3 = resp_to_l3
 
-# Directory memory: Directory memory of infinite size which is
-# used by directory controller to store the "states" of the
-# state machine. The state machine is implemented per cache block
-class DirMem(RubyDirectoryMemory, CntrlBase):
-    def create(self, options, ruby_system, system):
-        self.version = self.versionCount()
-        phys_mem_size = AddrRange(options.mem_size).size()
-        mem_module_size = phys_mem_size / options.num_dirs
-        dir_size = MemorySize('0B')
-        dir_size.value = mem_module_size
-        self.size = dir_size
-
-# Directory controller: Contains directory memory, L3 cache and associated state
-# machine which is used to accurately redirect a data request to L3 cache or to
-# memory. The permissions requests do not come to this directory for region
+# Directory controller: Contains directory memory, L3 cache and associated
+# state machine which is used to accurately redirect a data request to L3 cache
+# or memory. The permissions requests do not come to this directory for region
 # based protocols as they are handled exclusively by the region directory.
 # However, region directory controller uses this directory controller for
 # sending probe requests and receiving probe responses.
 class DirCntrl(Directory_Controller, CntrlBase):
-    def create(self, options, ruby_system, system):
+    def create(self, options, dir_ranges, ruby_system, system):
         self.version = self.versionCount()
         self.response_latency = 25
         self.response_latency_regionDir = 1
-        self.directory = DirMem()
-        self.directory.create(options, ruby_system, system)
+        self.addr_ranges = dir_ranges
+        self.directory = RubyDirectoryMemory()
         self.L3CacheMemory = L3Cache()
         self.L3CacheMemory.create(options, ruby_system, system)
         self.l3_hit_latency = \
@@ -328,7 +327,7 @@ class RegionDir(RubyCache):
         self.dataAccessLatency = 1
         self.resourceStalls = options.no_resource_stalls
         self.start_index_bit = 6 + int(math.log(options.blocks_per_region, 2))
-        self.replacement_policy = PseudoLRUReplacementPolicy(assoc = self.assoc)
+        self.replacement_policy = TreePLRURP(num_leaves = self.assoc)
 # Region directory controller : Contains region directory and associated state
 # machine for dealing with region coherence requests.
 class RegionCntrl(RegionDir_Controller, CntrlBase):
@@ -386,7 +385,7 @@ class RBCntrl(RegionBuffer_Controller, CntrlBase):
         if options.recycle_latency:
             self.recycle_latency = options.recycle_latency
         self.cacheMemory.replacement_policy = \
-            PseudoLRUReplacementPolicy(assoc = self.cacheMemory.assoc)
+            TreePLRURP(num_leaves = self.cacheMemory.assoc)
 
 def define_options(parser):
     parser.add_option("--num-subcaches", type="int", default=4)
@@ -407,6 +406,8 @@ def define_options(parser):
                       help="SQC cache size")
     parser.add_option("--sqc-assoc", type='int', default=8,
                       help="SQC cache assoc")
+    parser.add_option("--sqc-deadlock-threshold", type='int',
+                      help="Set the SQC deadlock threshold to some value")
 
     parser.add_option("--WB_L1", action="store_true",
         default=False, help="L2 Writeback Cache")
@@ -422,6 +423,10 @@ def define_options(parser):
                       help="tcc assoc")
     parser.add_option("--tcp-size", type='string', default='16kB',
                       help="tcp size")
+    parser.add_option("--tcp-deadlock-threshold", type='int',
+                      help="Set the TCP deadlock threshold to some value")
+    parser.add_option("--max-coalesces-per-cycle", type="int", default=1,
+                      help="Maximum insts that may coalesce in a cycle");
 
     parser.add_option("--dir-tag-latency", type="int", default=4)
     parser.add_option("--dir-tag-banks", type="int", default=4)
@@ -678,8 +683,26 @@ def create_system(options, full_system, system, dma_devices, bootmem,
     # Clusters
     mainCluster = Cluster(intBW = crossbar_bw)
 
+    if options.numa_high_bit:
+        numa_bit = options.numa_high_bit
+    else:
+        # if the numa_bit is not specified, set the directory bits as the
+        # lowest bits above the block offset bits, and the numa_bit as the
+        # highest of those directory bits
+        dir_bits = int(math.log(options.num_dirs, 2))
+        block_size_bits = int(math.log(options.cacheline_size, 2))
+        numa_bit = block_size_bits + dir_bits - 1
+
+    dir_ranges = []
+    for r in system.mem_ranges:
+        addr_range = m5.objects.AddrRange(r.start, size = r.size(),
+                                          intlvHighBit = numa_bit,
+                                          intlvBits = dir_bits,
+                                          intlvMatch = i)
+        dir_ranges.append(addr_range)
+
     dir_cntrl = DirCntrl()
-    dir_cntrl.create(options, ruby_system, system)
+    dir_cntrl.create(options, dir_ranges, ruby_system, system)
     dir_cntrl.number_of_TBEs = 2560 * options.num_compute_units
     dir_cntrl.useL3OnWT = options.use_L3_on_WT
 
@@ -713,6 +736,7 @@ def create_system(options, full_system, system, dma_devices, bootmem,
 
     dir_cntrl.triggerQueue = MessageBuffer(ordered = True)
     dir_cntrl.L3triggerQueue = MessageBuffer(ordered = True)
+    dir_cntrl.requestToMemory = MessageBuffer()
     dir_cntrl.responseFromMemory = MessageBuffer()
 
     exec("system.dir_cntrl%d = dir_cntrl" % i)

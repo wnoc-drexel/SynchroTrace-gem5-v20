@@ -24,12 +24,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "dev/x86/cmos.hh"
 
+#include "base/trace.hh"
 #include "debug/CMOS.hh"
 #include "dev/x86/intdev.hh"
 #include "mem/packet_access.hh"
@@ -37,10 +36,11 @@
 void
 X86ISA::Cmos::X86RTC::handleEvent()
 {
-    assert(intPin);
-    intPin->raise();
-    //XXX This is a hack.
-    intPin->lower();
+    for (auto *wire: intPin) {
+        wire->raise();
+        //XXX This is a hack.
+        wire->lower();
+    }
 }
 
 Tick

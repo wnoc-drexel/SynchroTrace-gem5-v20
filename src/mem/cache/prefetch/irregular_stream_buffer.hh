@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 /**
@@ -47,7 +45,9 @@
 
 struct IrregularStreamBufferPrefetcherParams;
 
-class IrregularStreamBufferPrefetcher : public QueuedPrefetcher
+namespace Prefetcher {
+
+class IrregularStreamBuffer : public Queued
 {
     /** Size in bytes of a temporal stream */
     const size_t chunkSize;
@@ -79,13 +79,18 @@ class IrregularStreamBufferPrefetcher : public QueuedPrefetcher
      * Maps a set of contiguous addresses to another set of (not necessarily
      * contiguos) addresses, with their corresponding confidence counters
      */
-    struct AddressMappingEntry : public TaggedEntry {
+    struct AddressMappingEntry : public TaggedEntry
+    {
         std::vector<AddressMapping> mappings;
         AddressMappingEntry(size_t num_mappings, unsigned counter_bits)
-            : mappings(num_mappings, counter_bits)
-        {}
-        void reset() override
+          : TaggedEntry(), mappings(num_mappings, counter_bits)
         {
+        }
+
+        void
+        invalidate() override
+        {
+            TaggedEntry::invalidate();
             for (auto &entry : mappings) {
                 entry.address = 0;
                 entry.counter.reset();
@@ -122,10 +127,13 @@ class IrregularStreamBufferPrefetcher : public QueuedPrefetcher
      */
     AddressMapping& getPSMapping(Addr paddr, bool is_secure);
   public:
-    IrregularStreamBufferPrefetcher(
-        const IrregularStreamBufferPrefetcherParams *p);
-    ~IrregularStreamBufferPrefetcher() {}
+    IrregularStreamBuffer(const IrregularStreamBufferPrefetcherParams *p);
+    ~IrregularStreamBuffer() = default;
+
     void calculatePrefetch(const PrefetchInfo &pfi,
                            std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
+
 #endif//__MEM_CACHE_PREFETCH_IRREGULAR_STREAM_BUFFER_HH__

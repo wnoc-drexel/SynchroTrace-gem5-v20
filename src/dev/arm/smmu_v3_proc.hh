@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #ifndef __DEV_ARM_SMMU_V3_PROC_HH__
@@ -48,7 +46,7 @@
 #include "base/types.hh"
 #include "mem/packet.hh"
 
-class SMMUv3SlaveInterface;
+class SMMUv3DeviceInterface;
 
 /*
  * The meaning of these becomes apparent when you
@@ -69,7 +67,7 @@ struct SMMUAction
 {
     SMMUActionType type;
     PacketPtr pkt;
-    SMMUv3SlaveInterface *ifc;
+    SMMUv3DeviceInterface *ifc;
     Tick delay;
 };
 

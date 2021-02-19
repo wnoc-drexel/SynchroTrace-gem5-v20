@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #ifndef __BASE_CRC_HH__
@@ -53,6 +51,8 @@
  * @param size: Number of bytes
  *
  * @return 32-bit remainder of the checksum
+ *
+ * @ingroup api_base_utils
  */
 template <uint32_t Poly>
 uint32_t

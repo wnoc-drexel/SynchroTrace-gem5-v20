@@ -25,8 +25,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
 
 Import('*')
 
@@ -34,11 +32,8 @@ Source('unittest.cc')
 
 UnitTest('cprintftime', 'cprintftime.cc')
 UnitTest('nmtest', 'nmtest.cc')
-UnitTest('refcnttest', 'refcnttest.cc')
-UnitTest('strnumtest', 'strnumtest.cc')
 
 stattest_py = PySource('m5', 'stattestmain.py', tags='stattest')
 UnitTest('stattest', 'stattest.cc', with_tag('stattest'), main=True)
 
 UnitTest('symtest', 'symtest.cc')
-UnitTest('tokentest', 'tokentest.cc')

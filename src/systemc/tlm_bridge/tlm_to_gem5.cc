@@ -53,9 +53,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Christian Menard
  */
 
 #include "systemc/tlm_bridge/tlm_to_gem5.hh"
@@ -68,6 +65,39 @@
 
 namespace sc_gem5
 {
+
+PacketPtr
+payload2packet(RequestorID _id, tlm::tlm_generic_payload &trans)
+{
+    MemCmd cmd;
+
+    switch (trans.get_command()) {
+        case tlm::TLM_READ_COMMAND:
+            cmd = MemCmd::ReadReq;
+            break;
+        case tlm::TLM_WRITE_COMMAND:
+            cmd = MemCmd::WriteReq;
+            break;
+        case tlm::TLM_IGNORE_COMMAND:
+            return nullptr;
+        default:
+            SC_REPORT_FATAL("TlmToGem5Bridge",
+                            "received transaction with unsupported command");
+    }
+
+    Request::Flags flags;
+    auto req = std::make_shared<Request>(
+        trans.get_address(), trans.get_data_length(), flags, _id);
+
+    /*
+     * Allocate a new Packet. The packet will be deleted when it returns from
+     * the gem5 world as a response.
+     */
+    auto pkt = new Packet(req, cmd);
+    pkt->dataStatic(trans.get_data_ptr());
+
+    return pkt;
+}
 
 template <unsigned int BITWIDTH>
 void
@@ -126,14 +156,21 @@ TlmToGem5Bridge<BITWIDTH>::handleBeginReq(tlm::tlm_generic_payload &trans)
         extension->setPipeThrough();
         pkt = extension->getPacket();
     } else {
-        pkt = generatePacket(trans);
+        pkt = payload2packet(_id, trans);
     }
 
     auto tlmSenderState = new TlmSenderState(trans);
     pkt->pushSenderState(tlmSenderState);
 
+    // If the packet doesn't need a response, we should send BEGIN_RESP by
+    // ourselves.
+    bool needsResponse = pkt->needsResponse();
     if (bmp.sendTimingReq(pkt)) { // port is free -> send END_REQ immediately
         sendEndReq(trans);
+        if (!needsResponse) {
+            auto delay = sc_core::SC_ZERO_TIME;
+            sendBeginResp(trans, delay);
+        }
         trans.release();
     } else { // port is blocked -> wait for retry before sending END_REQ
         waitForRetry = true;
@@ -156,40 +193,6 @@ TlmToGem5Bridge<BITWIDTH>::handleEndResp(tlm::tlm_generic_payload &trans)
         bmp.sendRetryResp();
         needToSendRetry = false;
     }
-}
-
-template <unsigned int BITWIDTH>
-PacketPtr
-TlmToGem5Bridge<BITWIDTH>::generatePacket(tlm::tlm_generic_payload &trans)
-{
-    MemCmd cmd;
-
-    switch (trans.get_command()) {
-        case tlm::TLM_READ_COMMAND:
-            cmd = MemCmd::ReadReq;
-            break;
-        case tlm::TLM_WRITE_COMMAND:
-            cmd = MemCmd::WriteReq;
-            break;
-        case tlm::TLM_IGNORE_COMMAND:
-            return nullptr;
-        default:
-            SC_REPORT_FATAL("TlmToGem5Bridge",
-                            "received transaction with unsupported command");
-    }
-
-    Request::Flags flags;
-    auto req = std::make_shared<Request>(
-        trans.get_address(), trans.get_data_length(), flags, masterId);
-
-    /*
-     * Allocate a new Packet. The packet will be deleted when it returns from
-     * the gem5 world as a response.
-     */
-    auto pkt = new Packet(req, cmd);
-    pkt->dataStatic(trans.get_data_ptr());
-
-    return pkt;
 }
 
 template <unsigned int BITWIDTH>
@@ -278,7 +281,7 @@ TlmToGem5Bridge<BITWIDTH>::b_transport(tlm::tlm_generic_payload &trans,
         extension->setPipeThrough();
         pkt = extension->getPacket();
     } else {
-        pkt = generatePacket(trans);
+        pkt = payload2packet(_id, trans);
     }
 
     MemBackdoorPtr backdoor = nullptr;
@@ -315,7 +318,7 @@ TlmToGem5Bridge<BITWIDTH>::transport_dbg(tlm::tlm_generic_payload &trans)
         extension->setPipeThrough();
         bmp.sendFunctional(extension->getPacket());
     } else {
-        auto pkt = generatePacket(trans);
+        auto pkt = payload2packet(_id, trans);
         if (pkt) {
             bmp.sendFunctional(pkt);
             destroyPacket(pkt);
@@ -341,7 +344,7 @@ TlmToGem5Bridge<BITWIDTH>::get_direct_mem_ptr(tlm::tlm_generic_payload &trans,
         extension->setPipeThrough();
         pkt = extension->getPacket();
     } else {
-        pkt = generatePacket(trans);
+        pkt = payload2packet(_id, trans);
         pkt->req->setFlags(Request::NO_ACCESS);
     }
 
@@ -433,12 +436,19 @@ TlmToGem5Bridge<BITWIDTH>::recvReqRetry()
     sc_assert(pendingRequest != nullptr);
     sc_assert(pendingPacket != nullptr);
 
+    // If the packet doesn't need a response, we should send BEGIN_RESP by
+    // ourselves.
+    bool needsResponse = pendingPacket->needsResponse();
     if (bmp.sendTimingReq(pendingPacket)) {
         waitForRetry = false;
         pendingPacket = nullptr;
 
         auto &trans = *pendingRequest;
         sendEndReq(trans);
+        if (!needsResponse) {
+            auto delay = sc_core::SC_ZERO_TIME;
+            sendBeginResp(trans, delay);
+        }
         trans.release();
 
         pendingRequest = nullptr;
@@ -474,7 +484,7 @@ TlmToGem5Bridge<BITWIDTH>::TlmToGem5Bridge(
     bmp(std::string(name()) + "master", *this), socket("tlm_socket"),
     wrapper(socket, std::string(name()) + ".tlm", InvalidPortID),
     system(params->system),
-    masterId(params->system->getGlobalMasterId(
+    _id(params->system->getGlobalRequestorId(
                 std::string("[systemc].") + name()))
 {
 }

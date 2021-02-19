@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 #ifndef __MEM_CACHE_REPLACEMENT_POLICIES_REPLACEABLE_ENTRY_HH__
@@ -33,6 +31,8 @@
 
 #include <cstdint>
 #include <memory>
+
+#include "base/cprintf.hh"
 
 /**
  * The replacement data needed by replacement policies. Each replacement policy
@@ -52,7 +52,7 @@ struct ReplacementData {};
  */
 class ReplaceableEntry
 {
-  private:
+  protected:
     /**
      * Set to which this entry belongs.
      */
@@ -63,12 +63,15 @@ class ReplaceableEntry
      */
     uint32_t _way;
 
-   public:
-     /**
-      * Replacement data associated to this entry.
-      * It must be instantiated by the replacement policy before being used.
-      */
-     std::shared_ptr<ReplacementData> replacementData;
+  public:
+    ReplaceableEntry() = default;
+    virtual ~ReplaceableEntry() = default;
+
+    /**
+     * Replacement data associated to this entry.
+     * It must be instantiated by the replacement policy before being used.
+     */
+    std::shared_ptr<ReplacementData> replacementData;
 
     /**
      * Set both the set and way. Should be called only once.
@@ -76,7 +79,9 @@ class ReplaceableEntry
      * @param set The set of this entry.
      * @param way The way of this entry.
      */
-    void setPosition(const uint32_t set, const uint32_t way) {
+    virtual void
+    setPosition(const uint32_t set, const uint32_t way)
+    {
         _set = set;
         _way = way;
     }
@@ -94,6 +99,17 @@ class ReplaceableEntry
      * @return The way to which this entry belongs.
      */
     uint32_t getWay() const { return _way; }
+
+    /**
+     * Prints relevant information about this entry.
+     *
+     * @return A string containg the contents of this entry.
+     */
+    virtual std::string
+    print() const
+    {
+        return csprintf("set: %#x way: %#x", getSet(), getWay());
+    }
 };
 
 #endif // __MEM_CACHE_REPLACEMENT_POLICIES_REPLACEABLE_ENTRY_HH_

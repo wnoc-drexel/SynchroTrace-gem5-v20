@@ -53,9 +53,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Christian Menard
  */
 
 #ifndef __SYSTEMC_TLM_BRIDGE_TLM_TO_GEM5_HH__
@@ -80,6 +77,8 @@ class TlmToGem5BridgeBase : public sc_core::sc_module
     using sc_core::sc_module::sc_module;
 };
 
+PacketPtr payload2packet(tlm::tlm_generic_payload &trans);
+
 template <unsigned int BITWIDTH>
 class TlmToGem5Bridge : public TlmToGem5BridgeBase
 {
@@ -90,7 +89,7 @@ class TlmToGem5Bridge : public TlmToGem5BridgeBase
         TlmSenderState(tlm::tlm_generic_payload &trans) : trans(trans) {}
     };
 
-    class BridgeMasterPort : public MasterPort
+    class BridgeRequestPort : public RequestPort
     {
       protected:
         TlmToGem5Bridge<BITWIDTH> &bridge;
@@ -104,9 +103,9 @@ class TlmToGem5Bridge : public TlmToGem5BridgeBase
         void recvRangeChange() override { bridge.recvRangeChange(); }
 
       public:
-        BridgeMasterPort(const std::string &name_,
+        BridgeRequestPort(const std::string &name_,
                          TlmToGem5Bridge<BITWIDTH> &bridge_) :
-            MasterPort(name_, nullptr), bridge(bridge_)
+            RequestPort(name_, nullptr), bridge(bridge_)
         {}
     };
 
@@ -120,7 +119,7 @@ class TlmToGem5Bridge : public TlmToGem5BridgeBase
 
     bool responseInProgress;
 
-    BridgeMasterPort bmp;
+    BridgeRequestPort bmp;
     tlm_utils::simple_target_socket<
         TlmToGem5Bridge<BITWIDTH>, BITWIDTH> socket;
     sc_gem5::TlmTargetWrapper<BITWIDTH> wrapper;
@@ -134,7 +133,6 @@ class TlmToGem5Bridge : public TlmToGem5BridgeBase
     void handleBeginReq(tlm::tlm_generic_payload &trans);
     void handleEndResp(tlm::tlm_generic_payload &trans);
 
-    PacketPtr generatePacket(tlm::tlm_generic_payload &trans);
     void destroyPacket(PacketPtr pkt);
 
     void checkTransaction(tlm::tlm_generic_payload &trans);
@@ -173,7 +171,7 @@ class TlmToGem5Bridge : public TlmToGem5BridgeBase
 
     void before_end_of_elaboration() override;
 
-    const MasterID masterId;
+    const RequestorID _id;
 };
 
 } // namespace sc_gem5

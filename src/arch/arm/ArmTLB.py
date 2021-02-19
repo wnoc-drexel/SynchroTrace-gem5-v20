@@ -34,8 +34,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ali Saidi
 
 from m5.SimObject import SimObject
 from m5.params import *
@@ -56,7 +54,7 @@ class ArmTableWalker(ClockedObject):
     # to the Stage2MMU, and shared by the two table walkers, but we
     # access it through the ITB and DTB walked objects in the CPU for
     # symmetry with the other ISAs.
-    port = MasterPort("Port used by the two table walkers")
+    port = RequestPort("Port used by the two table walkers")
 
     sys = Param.System(Parent.any, "system object parameter")
 
@@ -90,11 +88,17 @@ class ArmStage2MMU(SimObject):
 class ArmStage2IMMU(ArmStage2MMU):
     # We rely on the itb being a parameter of the CPU, and get the
     # appropriate object that way
-    tlb = Parent.itb
+    tlb = Parent.any
     stage2_tlb = ArmStage2TLB()
 
 class ArmStage2DMMU(ArmStage2MMU):
     # We rely on the dtb being a parameter of the CPU, and get the
     # appropriate object that way
-    tlb = Parent.dtb
+    tlb = Parent.any
     stage2_tlb = ArmStage2TLB()
+
+class ArmITB(ArmTLB):
+    stage2_mmu = ArmStage2IMMU()
+
+class ArmDTB(ArmTLB):
+    stage2_mmu = ArmStage2DMMU()

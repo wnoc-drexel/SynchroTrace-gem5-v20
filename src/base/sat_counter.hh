@@ -36,14 +36,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Daniel Carvalho
  */
 
 #ifndef __BASE_SAT_COUNTER_HH__
 #define __BASE_SAT_COUNTER_HH__
 
+#include <cassert>
 #include <cstdint>
 
 #include "base/logging.hh"
@@ -67,6 +65,8 @@ class SatCounter
      *
      * @param bits How many bits the counter will have.
      * @param initial_val Starting value for the counter.
+     *
+     * @ingroup api_sat_counter
      */
     explicit SatCounter(unsigned bits, uint8_t initial_val = 0)
         : initialVal(initial_val), maxVal((1 << bits) - 1),
@@ -78,14 +78,22 @@ class SatCounter
                  "Saturating counter's Initial value exceeds max value.");
     }
 
-    /** Copy constructor. */
+    /**
+     * Copy constructor.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter(const SatCounter& other)
         : initialVal(other.initialVal), maxVal(other.maxVal),
           counter(other.counter)
     {
     }
 
-    /** Copy assignment. */
+    /**
+     * Copy assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter& operator=(const SatCounter& other) {
         if (this != &other) {
             SatCounter temp(other);
@@ -94,7 +102,11 @@ class SatCounter
         return *this;
     }
 
-    /** Move constructor. */
+    /**
+     * Move constructor.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter(SatCounter&& other)
     {
         initialVal = other.initialVal;
@@ -104,7 +116,11 @@ class SatCounter
         other.swap(temp);
     }
 
-    /** Move assignment. */
+    /**
+     * Move assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter& operator=(SatCounter&& other) {
         if (this != &other) {
             initialVal = other.initialVal;
@@ -121,6 +137,8 @@ class SatCounter
      * copy-assignment created by the compiler.
      *
      * @param other The other object to swap contents with.
+     *
+     * @ingroup api_sat_counter
      */
     void
     swap(SatCounter& other)
@@ -130,7 +148,11 @@ class SatCounter
         std::swap(counter, other.counter);
     }
 
-    /** Pre-increment operator. */
+    /**
+     * Pre-increment operator.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator++()
     {
@@ -140,7 +162,11 @@ class SatCounter
         return *this;
     }
 
-    /** Post-increment operator. */
+    /**
+     * Post-increment operator.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter
     operator++(int)
     {
@@ -149,7 +175,11 @@ class SatCounter
         return old_counter;
     }
 
-    /** Pre-decrement operator. */
+    /**
+     * Pre-decrement operator.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator--()
     {
@@ -159,7 +189,11 @@ class SatCounter
         return *this;
     }
 
-    /** Post-decrement operator. */
+    /**
+     * Post-decrement operator.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter
     operator--(int)
     {
@@ -168,18 +202,28 @@ class SatCounter
         return old_counter;
     }
 
-    /** Shift-right-assignment. */
+    /**
+     * Shift-right-assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator>>=(const int& shift)
     {
+        assert(shift >= 0);
         this->counter >>= shift;
         return *this;
     }
 
-    /** Shift-left-assignment. */
+    /**
+     * Shift-left-assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator<<=(const int& shift)
     {
+        assert(shift >= 0);
         this->counter <<= shift;
         if (this->counter > maxVal) {
             this->counter = maxVal;
@@ -187,36 +231,58 @@ class SatCounter
         return *this;
     }
 
-    /** Add-assignment. */
+    /**
+     * Add-assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator+=(const int& value)
     {
-        if (maxVal - this->counter >= value) {
-            this->counter += value;
+        if (value >= 0) {
+            if (maxVal - this->counter >= value) {
+                this->counter += value;
+            } else {
+                this->counter = maxVal;
+            }
         } else {
-            this->counter = maxVal;
+            *this -= -value;
         }
         return *this;
     }
 
-    /** Subtract-assignment. */
+    /**
+     * Subtract-assignment.
+     *
+     * @ingroup api_sat_counter
+     */
     SatCounter&
     operator-=(const int& value)
     {
-        if (this->counter > value) {
-            this->counter -= value;
+        if (value >= 0) {
+            if (this->counter > value) {
+                this->counter -= value;
+            } else {
+                this->counter = 0;
+            }
         } else {
-            this->counter = 0;
+            *this += -value;
         }
         return *this;
     }
 
     /**
      * Read the counter's value.
+     *
+     * @ingroup api_sat_counter
      */
     operator uint8_t() const { return counter; }
 
-    /** Reset the counter to its initial value. */
+    /**
+     * Reset the counter to its initial value.
+     *
+     * @ingroup api_sat_counter
+     */
     void reset() { counter = initialVal; }
 
     /**
@@ -225,6 +291,8 @@ class SatCounter
      *
      * @return A value between 0.0 and 1.0 to indicate which percentile of
      *         the maximum value the current value is.
+     *
+     * @ingroup api_sat_counter
      */
     double calcSaturation() const { return (double) counter / maxVal; }
 
@@ -232,8 +300,24 @@ class SatCounter
      * Whether the counter has achieved its maximum value or not.
      *
      * @return True if the counter saturated.
+     *
+     * @ingroup api_sat_counter
      */
     bool isSaturated() const { return counter == maxVal; }
+
+    /**
+     * Saturate the counter.
+     *
+     * @return The value added to the counter to reach saturation.
+     *
+     * @ingroup api_sat_counter
+     */
+    uint8_t saturate()
+    {
+        const uint8_t diff = maxVal - counter;
+        counter = maxVal;
+        return diff;
+    }
 
   private:
     uint8_t initialVal;

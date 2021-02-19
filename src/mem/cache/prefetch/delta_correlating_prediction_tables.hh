@@ -24,17 +24,19 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 #ifndef __MEM_CACHE_PREFETCH_DELTA_CORRELATING_PREDICTION_TABLES_HH_
 #define __MEM_CACHE_PREFETCH_DELTA_CORRELATING_PREDICTION_TABLES_HH_
 
+#include "base/circular_queue.hh"
 #include "mem/cache/prefetch/associative_set.hh"
 #include "mem/cache/prefetch/queued.hh"
 
 struct DeltaCorrelatingPredictionTablesParams;
+struct DCPTPrefetcherParams;
+
+namespace Prefetcher {
 
 /**
  * Delta Correlating Prediction Tables Prefetcher
@@ -63,24 +65,19 @@ class DeltaCorrelatingPredictionTables : public SimObject
     {
         /** Last accessed address */
         Addr lastAddress;
-        /**
-        * Position of the first free entry, or the oldest element, if it is
-        * full
-        */
-        unsigned int deltaPointer;
         /** Stored deltas */
-        std::vector<Addr> deltas;
+        CircularQueue<Addr> deltas;
 
         /**
          * Constructor
          * @param num_deltas number of deltas stored in the entry
          */
-        DCPTEntry(unsigned int num_deltas) : lastAddress(0), deltaPointer(0),
-            deltas(num_deltas)
-        {}
+        DCPTEntry(unsigned int num_deltas)
+          : TaggedEntry(), lastAddress(0), deltas(num_deltas)
+        {
+        }
 
-        /** Reset callback called when invalidating the entry */
-        void reset() override;
+        void invalidate() override;
 
         /**
          * Adds an address to the entry, if the entry already existed, a delta
@@ -97,7 +94,7 @@ class DeltaCorrelatingPredictionTables : public SimObject
          * @param mask_bits the number of lower bits that should be masked
          *        (ignored) when comparing deltas
          */
-        void getCandidates(std::vector<QueuedPrefetcher::AddrPriority> &pfs,
+        void getCandidates(std::vector<Queued::AddrPriority> &pfs,
                            unsigned int mask_bits) const;
 
     };
@@ -107,31 +104,31 @@ class DeltaCorrelatingPredictionTables : public SimObject
   public:
     DeltaCorrelatingPredictionTables(
         DeltaCorrelatingPredictionTablesParams *p);
-    ~DeltaCorrelatingPredictionTables()
-    {}
+    ~DeltaCorrelatingPredictionTables() = default;
 
     /**
      * Computes the prefetch candidates given a prefetch event.
      * @param pfi The prefetch event information
      * @param addresses prefetch candidates generated
      */
-    void calculatePrefetch(const BasePrefetcher::PrefetchInfo &pfi,
-        std::vector<QueuedPrefetcher::AddrPriority> &addresses);
+    void calculatePrefetch(const Base::PrefetchInfo &pfi,
+        std::vector<Queued::AddrPriority> &addresses);
 
 };
 
-struct DCPTPrefetcherParams;
-
 /** The prefetcher object using the DCPT */
-class DCPTPrefetcher : public QueuedPrefetcher
+class DCPT : public Queued
 {
     /** DCPT object */
     DeltaCorrelatingPredictionTables &dcpt;
   public:
-    DCPTPrefetcher(const DCPTPrefetcherParams *p);
-    ~DCPTPrefetcher()
-    {}
+    DCPT(const DCPTPrefetcherParams *p);
+    ~DCPT() = default;
+
     void calculatePrefetch(const PrefetchInfo &pfi,
         std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
+
 #endif//__MEM_CACHE_PREFETCH_DELTA_CORRELATING_PREDICTION_TABLES_HH_

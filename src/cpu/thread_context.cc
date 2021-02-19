@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #include "cpu/thread_context.hh"
@@ -48,10 +46,8 @@
 #include "base/trace.hh"
 #include "config/the_isa.hh"
 #include "cpu/base.hh"
-#include "cpu/quiesce_event.hh"
 #include "debug/Context.hh"
 #include "debug/Quiesce.hh"
-#include "kern/kernel_stats.hh"
 #include "params/BaseCPU.hh"
 #include "sim/full_system.hh"
 
@@ -132,34 +128,14 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
 void
 ThreadContext::quiesce()
 {
-    if (!getCpuPtr()->params()->do_quiesce)
-        return;
-
-    DPRINTF(Quiesce, "%s: quiesce()\n", getCpuPtr()->name());
-
-    suspend();
-    if (getKernelStats())
-        getKernelStats()->quiesce();
+    getSystemPtr()->threads.quiesce(contextId());
 }
 
 
 void
 ThreadContext::quiesceTick(Tick resume)
 {
-    BaseCPU *cpu = getCpuPtr();
-
-    if (!cpu->params()->do_quiesce)
-        return;
-
-    EndQuiesceEvent *quiesceEvent = getQuiesceEvent();
-
-    cpu->reschedule(quiesceEvent, resume, true);
-
-    DPRINTF(Quiesce, "%s: quiesceTick until %lu\n", cpu->name(), resume);
-
-    suspend();
-    if (getKernelStats())
-        getKernelStats()->quiesce();
+    getSystemPtr()->threads.quiesceTick(contextId(), resume);
 }
 
 void
@@ -191,12 +167,12 @@ serialize(const ThreadContext &tc, CheckpointOut &cp)
         intRegs[i] = tc.readIntRegFlat(i);
     SERIALIZE_ARRAY(intRegs, NumIntRegs);
 
-#ifdef ISA_HAS_CC_REGS
-    RegVal ccRegs[NumCCRegs];
-    for (int i = 0; i < NumCCRegs; ++i)
-        ccRegs[i] = tc.readCCRegFlat(i);
-    SERIALIZE_ARRAY(ccRegs, NumCCRegs);
-#endif
+    if (NumCCRegs) {
+        RegVal ccRegs[NumCCRegs];
+        for (int i = 0; i < NumCCRegs; ++i)
+            ccRegs[i] = tc.readCCRegFlat(i);
+        SERIALIZE_ARRAY(ccRegs, NumCCRegs);
+    }
 
     tc.pcState().serialize(cp);
 
@@ -232,12 +208,12 @@ unserialize(ThreadContext &tc, CheckpointIn &cp)
     for (int i = 0; i < NumIntRegs; ++i)
         tc.setIntRegFlat(i, intRegs[i]);
 
-#ifdef ISA_HAS_CC_REGS
-    RegVal ccRegs[NumCCRegs];
-    UNSERIALIZE_ARRAY(ccRegs, NumCCRegs);
-    for (int i = 0; i < NumCCRegs; ++i)
-        tc.setCCRegFlat(i, ccRegs[i]);
-#endif
+    if (NumCCRegs) {
+        RegVal ccRegs[NumCCRegs];
+        UNSERIALIZE_ARRAY(ccRegs, NumCCRegs);
+        for (int i = 0; i < NumCCRegs; ++i)
+            tc.setCCRegFlat(i, ccRegs[i]);
+    }
 
     PCState pcState;
     pcState.unserialize(cp);
@@ -256,26 +232,8 @@ takeOverFrom(ThreadContext &ntc, ThreadContext &otc)
     ntc.setContextId(otc.contextId());
     ntc.setThreadId(otc.threadId());
 
-    if (FullSystem) {
+    if (FullSystem)
         assert(ntc.getSystemPtr() == otc.getSystemPtr());
-
-        BaseCPU *ncpu(ntc.getCpuPtr());
-        assert(ncpu);
-        EndQuiesceEvent *oqe(otc.getQuiesceEvent());
-        assert(oqe);
-        assert(oqe->tc == &otc);
-
-        BaseCPU *ocpu(otc.getCpuPtr());
-        assert(ocpu);
-        EndQuiesceEvent *nqe(ntc.getQuiesceEvent());
-        assert(nqe);
-        assert(nqe->tc == &ntc);
-
-        if (oqe->scheduled()) {
-            ncpu->schedule(nqe, oqe->when());
-            ocpu->deschedule(oqe);
-        }
-    }
 
     otc.setStatus(ThreadContext::Halted);
 }

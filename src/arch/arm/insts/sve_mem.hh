@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Gabrielli
  */
 
 #ifndef __ARCH_ARM_SVE_MEM_HH__
@@ -63,12 +61,13 @@ class SveMemVecFillSpill : public ArmStaticInst
                        IntRegIndex _base, uint64_t _imm)
         : ArmStaticInst(mnem, _machInst, __opClass),
           dest(_dest), base(_base), imm(_imm),
-          memAccessFlags(ArmISA::TLB::AllowUnaligned | ArmISA::TLB::MustBeOne)
+          memAccessFlags(ArmISA::TLB::AllowUnaligned)
     {
         baseIsSP = isSP(_base);
     }
 
-    std::string generateDisassembly(Addr pc, const SymbolTable *symtab) const;
+    std::string generateDisassembly(
+            Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class SveMemPredFillSpill : public ArmStaticInst
@@ -88,12 +87,13 @@ class SveMemPredFillSpill : public ArmStaticInst
                         IntRegIndex _base, uint64_t _imm)
         : ArmStaticInst(mnem, _machInst, __opClass),
           dest(_dest), base(_base), imm(_imm),
-          memAccessFlags(ArmISA::TLB::AllowUnaligned | ArmISA::TLB::MustBeOne)
+          memAccessFlags(ArmISA::TLB::AllowUnaligned)
     {
         baseIsSP = isSP(_base);
     }
 
-    std::string generateDisassembly(Addr pc, const SymbolTable *symtab) const;
+    std::string generateDisassembly(
+            Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class SveContigMemSS : public ArmStaticInst
@@ -114,12 +114,13 @@ class SveContigMemSS : public ArmStaticInst
                    IntRegIndex _offset)
         : ArmStaticInst(mnem, _machInst, __opClass),
           dest(_dest), gp(_gp), base(_base), offset(_offset),
-          memAccessFlags(ArmISA::TLB::AllowUnaligned | ArmISA::TLB::MustBeOne)
+          memAccessFlags(ArmISA::TLB::AllowUnaligned)
     {
         baseIsSP = isSP(_base);
     }
 
-    std::string generateDisassembly(Addr pc, const SymbolTable *symtab) const;
+    std::string generateDisassembly(
+            Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class SveContigMemSI : public ArmStaticInst
@@ -140,12 +141,13 @@ class SveContigMemSI : public ArmStaticInst
                    uint64_t _imm)
         : ArmStaticInst(mnem, _machInst, __opClass),
           dest(_dest), gp(_gp), base(_base), imm(_imm),
-          memAccessFlags(ArmISA::TLB::AllowUnaligned | ArmISA::TLB::MustBeOne)
+          memAccessFlags(ArmISA::TLB::AllowUnaligned)
     {
         baseIsSP = isSP(_base);
     }
 
-    std::string generateDisassembly(Addr pc, const SymbolTable *symtab) const;
+    std::string generateDisassembly(
+            Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 }  // namespace ArmISA

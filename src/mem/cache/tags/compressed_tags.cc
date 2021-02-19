@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /**
@@ -67,9 +65,6 @@ CompressedTags::tagsInit()
         // allocation conditions
         superblock->setBlkSize(blkSize);
 
-        // Link block to indexing policy
-        indexingPolicy->setEntry(superblock, superblock_index);
-
         // Associate a replacement data entry to the block
         superblock->replacementData = replacementPolicy->instantiateEntry();
 
@@ -97,13 +92,16 @@ CompressedTags::tagsInit()
             // Update block index
             ++blk_index;
         }
+
+        // Link block to indexing policy
+        indexingPolicy->setEntry(superblock, superblock_index);
     }
 }
 
 CacheBlk*
 CompressedTags::findVictim(Addr addr, const bool is_secure,
                            const std::size_t compressed_size,
-                           std::vector<CacheBlk*>& evict_blks) const
+                           std::vector<CacheBlk*>& evict_blks)
 {
     // Get all possible locations of this superblock
     const std::vector<ReplaceableEntry*> superblock_entries =
@@ -138,7 +136,9 @@ CompressedTags::findVictim(Addr addr, const bool is_secure,
 
         // The whole superblock must be evicted to make room for the new one
         for (const auto& blk : victim_superblock->blks){
-            evict_blks.push_back(blk);
+            if (blk->isValid()) {
+                evict_blks.push_back(blk);
+            }
         }
     }
 
@@ -158,6 +158,9 @@ CompressedTags::findVictim(Addr addr, const bool is_secure,
             }
         }
     }
+
+    // Update number of sub-blocks evicted due to a replacement
+    sectorStats.evictionsReplacement[evict_blks.size()]++;
 
     return victim;
 }

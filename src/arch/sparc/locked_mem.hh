@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __ARCH_SPARC_LOCKED_MEM_HH__
@@ -38,5 +36,12 @@
  */
 
 #include "arch/generic/locked_mem.hh"
+
+namespace SparcISA
+{
+
+using namespace GenericISA::LockedMem;
+
+} // namespace SparcISA
 
 #endif

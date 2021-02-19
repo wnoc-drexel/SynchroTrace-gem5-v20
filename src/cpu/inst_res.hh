@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathanael Premillieu
  */
 
 #ifndef __CPU_INST_RES_HH__
@@ -75,6 +73,7 @@ class InstResult {
   public:
     /** Default constructor creates an invalid result. */
     InstResult() : type(ResultType::Invalid) { }
+    InstResult(const InstResult &) = default;
     /** Scalar result from scalar. */
     template<typename T>
     explicit InstResult(T i, const ResultType& t) : type(t) {

@@ -54,10 +54,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Matthias Jung
- *          Christian Menard
  */
 
 #ifndef __SYSTEMC_TLM_BRIDGE_GEM5_TO_TLM_HH__
@@ -72,11 +68,12 @@
 #include "systemc/ext/core/sc_module_name.hh"
 #include "systemc/ext/tlm_core/2/generic_payload/gp.hh"
 #include "systemc/ext/tlm_utils/simple_initiator_socket.h"
-#include "systemc/tlm_bridge/sc_peq.hh"
 #include "systemc/tlm_port_wrapper.hh"
 
 namespace sc_gem5
 {
+
+tlm::tlm_generic_payload *packet2payload(PacketPtr packet);
 
 class Gem5ToTlmBridgeBase : public sc_core::sc_module
 {
@@ -88,7 +85,7 @@ template <unsigned int BITWIDTH>
 class Gem5ToTlmBridge : public Gem5ToTlmBridgeBase
 {
   private:
-    class BridgeSlavePort : public SlavePort
+    class BridgeResponsePort : public ResponsePort
     {
       protected:
         Gem5ToTlmBridge<BITWIDTH> &bridge;
@@ -131,13 +128,13 @@ class Gem5ToTlmBridge : public Gem5ToTlmBridgeBase
         void recvRespRetry() override { bridge.recvRespRetry(); }
 
       public:
-        BridgeSlavePort(const std::string &name_,
+        BridgeResponsePort(const std::string &name_,
                         Gem5ToTlmBridge<BITWIDTH> &bridge_) :
-            SlavePort(name_, nullptr), bridge(bridge_)
+            ResponsePort(name_, nullptr), bridge(bridge_)
         {}
     };
 
-    BridgeSlavePort bsp;
+    BridgeResponsePort bridgeResponsePort;
     tlm_utils::simple_initiator_socket<
         Gem5ToTlmBridge<BITWIDTH>, BITWIDTH> socket;
     sc_gem5::TlmInitiatorWrapper<BITWIDTH> wrapper;
@@ -165,8 +162,7 @@ class Gem5ToTlmBridge : public Gem5ToTlmBridgeBase
     AddrRangeList addrRanges;
 
   protected:
-    void pec(Gem5SystemC::PayloadEvent<Gem5ToTlmBridge<BITWIDTH>> *pe,
-             tlm::tlm_generic_payload &trans, const tlm::tlm_phase &phase);
+    void pec(tlm::tlm_generic_payload &trans, const tlm::tlm_phase &phase);
 
     MemBackdoorPtr getBackdoor(tlm::tlm_generic_payload &trans);
     AddrRangeMap<MemBackdoorPtr> backdoorMap;

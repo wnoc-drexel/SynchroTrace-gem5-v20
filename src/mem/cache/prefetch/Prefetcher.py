@@ -35,9 +35,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ron Dreslinski
-#          Mitch Hayenga
 
 from m5.SimObject import *
 from m5.params import *
@@ -62,6 +59,7 @@ class HWPProbeEvent(object):
 class BasePrefetcher(ClockedObject):
     type = 'BasePrefetcher'
     abstract = True
+    cxx_class = 'Prefetcher::Base'
     cxx_header = "mem/cache/prefetch/base.hh"
     cxx_exports = [
         PyBindMethod("addEventProbe"),
@@ -82,7 +80,11 @@ class BasePrefetcher(ClockedObject):
     use_virtual_addresses = Param.Bool(False,
         "Use virtual addresses for prefetching")
 
-    _events = []
+    def __init__(self, **kwargs):
+        super(BasePrefetcher, self).__init__(**kwargs)
+        self._events = []
+        self._tlbs = []
+
     def addEvent(self, newObject):
         self._events.append(newObject)
 
@@ -92,7 +94,7 @@ class BasePrefetcher(ClockedObject):
         for tlb in self._tlbs:
             self.getCCObject().addTLB(tlb.getCCObject())
         for event in self._events:
-           event.register()
+            event.register()
         self.getCCObject().regProbeListeners()
 
     def listenFromProbe(self, simObj, *probeNames):
@@ -101,7 +103,7 @@ class BasePrefetcher(ClockedObject):
         if len(probeNames) <= 0:
             raise TypeError("probeNames must have at least one element")
         self.addEvent(HWPProbeEvent(self, simObj, *probeNames))
-    _tlbs = []
+
     def registerTLB(self, simObj):
         if not isinstance(simObj, SimObject):
             raise TypeError("argument must be a SimObject type")
@@ -109,7 +111,7 @@ class BasePrefetcher(ClockedObject):
 
 class MultiPrefetcher(BasePrefetcher):
     type = 'MultiPrefetcher'
-    cxx_class = 'MultiPrefetcher'
+    cxx_class = 'Prefetcher::Multi'
     cxx_header = 'mem/cache/prefetch/multi.hh'
 
     prefetchers = VectorParam.BasePrefetcher([], "Array of prefetchers")
@@ -117,7 +119,7 @@ class MultiPrefetcher(BasePrefetcher):
 class QueuedPrefetcher(BasePrefetcher):
     type = "QueuedPrefetcher"
     abstract = True
-    cxx_class = "QueuedPrefetcher"
+    cxx_class = "Prefetcher::Queued"
     cxx_header = "mem/cache/prefetch/queued.hh"
     latency = Param.Int(1, "Latency for generated prefetches")
     queue_size = Param.Int(32, "Maximum number of queued prefetches")
@@ -141,39 +143,49 @@ class QueuedPrefetcher(BasePrefetcher):
     throttle_control_percentage = Param.Percent(0, "Percentage of requests \
         that can be throttled depending on the accuracy of the prefetcher.")
 
+class StridePrefetcherHashedSetAssociative(SetAssociative):
+    type = 'StridePrefetcherHashedSetAssociative'
+    cxx_class = 'Prefetcher::StridePrefetcherHashedSetAssociative'
+    cxx_header = "mem/cache/prefetch/stride.hh"
+
 class StridePrefetcher(QueuedPrefetcher):
     type = 'StridePrefetcher'
-    cxx_class = 'StridePrefetcher'
+    cxx_class = 'Prefetcher::Stride'
     cxx_header = "mem/cache/prefetch/stride.hh"
 
     # Do not consult stride prefetcher on instruction accesses
     on_inst = False
 
-    max_conf = Param.Int(7, "Maximum confidence level")
-    thresh_conf = Param.Int(4, "Threshold confidence level")
-    min_conf = Param.Int(0, "Minimum confidence level")
-    start_conf = Param.Int(4, "Starting confidence for new entries")
+    confidence_counter_bits = Param.Unsigned(3,
+        "Number of bits of the confidence counter")
+    initial_confidence = Param.Unsigned(4,
+        "Starting confidence of new entries")
+    confidence_threshold = Param.Percent(50,
+        "Prefetch generation confidence threshold")
 
-    table_sets = Param.Int(16, "Number of sets in PC lookup table")
-    table_assoc = Param.Int(4, "Associativity of PC lookup table")
-    use_master_id = Param.Bool(True, "Use master id based history")
+    use_requestor_id = Param.Bool(True, "Use requestor id based history")
 
     degree = Param.Int(4, "Number of prefetches to generate")
 
-    # Get replacement policy
-    replacement_policy = Param.BaseReplacementPolicy(RandomRP(),
-        "Replacement policy")
+    table_assoc = Param.Int(4, "Associativity of the PC table")
+    table_entries = Param.MemorySize("64", "Number of entries of the PC table")
+    table_indexing_policy = Param.BaseIndexingPolicy(
+        StridePrefetcherHashedSetAssociative(entry_size = 1,
+        assoc = Parent.table_assoc, size = Parent.table_entries),
+        "Indexing policy of the PC table")
+    table_replacement_policy = Param.BaseReplacementPolicy(RandomRP(),
+        "Replacement policy of the PC table")
 
 class TaggedPrefetcher(QueuedPrefetcher):
     type = 'TaggedPrefetcher'
-    cxx_class = 'TaggedPrefetcher'
+    cxx_class = 'Prefetcher::Tagged'
     cxx_header = "mem/cache/prefetch/tagged.hh"
 
     degree = Param.Int(2, "Number of prefetches to generate")
 
 class IndirectMemoryPrefetcher(QueuedPrefetcher):
     type = 'IndirectMemoryPrefetcher'
-    cxx_class = 'IndirectMemoryPrefetcher'
+    cxx_class = 'Prefetcher::IndirectMemory'
     cxx_header = "mem/cache/prefetch/indirect_memory.hh"
     pt_table_entries = Param.MemorySize("16",
         "Number of entries of the Prefetch Table")
@@ -208,7 +220,7 @@ class IndirectMemoryPrefetcher(QueuedPrefetcher):
 
 class SignaturePathPrefetcher(QueuedPrefetcher):
     type = 'SignaturePathPrefetcher'
-    cxx_class = 'SignaturePathPrefetcher'
+    cxx_class = 'Prefetcher::SignaturePath'
     cxx_header = "mem/cache/prefetch/signature_path.hh"
 
     signature_shift = Param.UInt8(3,
@@ -248,7 +260,7 @@ class SignaturePathPrefetcher(QueuedPrefetcher):
 
 class SignaturePathPrefetcherV2(SignaturePathPrefetcher):
     type = 'SignaturePathPrefetcherV2'
-    cxx_class = 'SignaturePathPrefetcherV2'
+    cxx_class = 'Prefetcher::SignaturePathV2'
     cxx_header = "mem/cache/prefetch/signature_path_v2.hh"
 
     signature_table_entries = "256"
@@ -271,7 +283,7 @@ class SignaturePathPrefetcherV2(SignaturePathPrefetcher):
 
 class AccessMapPatternMatching(ClockedObject):
     type = 'AccessMapPatternMatching'
-    cxx_class = 'AccessMapPatternMatching'
+    cxx_class = 'Prefetcher::AccessMapPatternMatching'
     cxx_header = "mem/cache/prefetch/access_map_pattern_matching.hh"
 
     block_size = Param.Unsigned(Parent.block_size,
@@ -310,14 +322,14 @@ class AccessMapPatternMatching(ClockedObject):
 
 class AMPMPrefetcher(QueuedPrefetcher):
     type = 'AMPMPrefetcher'
-    cxx_class = 'AMPMPrefetcher'
+    cxx_class = 'Prefetcher::AMPM'
     cxx_header = "mem/cache/prefetch/access_map_pattern_matching.hh"
     ampm = Param.AccessMapPatternMatching( AccessMapPatternMatching(),
         "Access Map Pattern Matching object")
 
 class DeltaCorrelatingPredictionTables(SimObject):
     type = 'DeltaCorrelatingPredictionTables'
-    cxx_class = 'DeltaCorrelatingPredictionTables'
+    cxx_class = 'Prefetcher::DeltaCorrelatingPredictionTables'
     cxx_header = "mem/cache/prefetch/delta_correlating_prediction_tables.hh"
     deltas_per_entry = Param.Unsigned(20,
         "Number of deltas stored in each table entry")
@@ -337,7 +349,7 @@ class DeltaCorrelatingPredictionTables(SimObject):
 
 class DCPTPrefetcher(QueuedPrefetcher):
     type = 'DCPTPrefetcher'
-    cxx_class = 'DCPTPrefetcher'
+    cxx_class = 'Prefetcher::DCPT'
     cxx_header = "mem/cache/prefetch/delta_correlating_prediction_tables.hh"
     dcpt = Param.DeltaCorrelatingPredictionTables(
         DeltaCorrelatingPredictionTables(),
@@ -345,7 +357,7 @@ class DCPTPrefetcher(QueuedPrefetcher):
 
 class IrregularStreamBufferPrefetcher(QueuedPrefetcher):
     type = "IrregularStreamBufferPrefetcher"
-    cxx_class = "IrregularStreamBufferPrefetcher"
+    cxx_class = "Prefetcher::IrregularStreamBuffer"
     cxx_header = "mem/cache/prefetch/irregular_stream_buffer.hh"
 
     num_counter_bits = Param.Unsigned(2,
@@ -398,7 +410,7 @@ class SlimDeltaCorrelatingPredictionTables(DeltaCorrelatingPredictionTables):
 
 class SlimAMPMPrefetcher(QueuedPrefetcher):
     type = 'SlimAMPMPrefetcher'
-    cxx_class = 'SlimAMPMPrefetcher'
+    cxx_class = 'Prefetcher::SlimAMPM'
     cxx_header = "mem/cache/prefetch/slim_ampm.hh"
 
     ampm = Param.AccessMapPatternMatching(SlimAccessMapPatternMatching(),
@@ -409,7 +421,7 @@ class SlimAMPMPrefetcher(QueuedPrefetcher):
 
 class BOPPrefetcher(QueuedPrefetcher):
     type = "BOPPrefetcher"
-    cxx_class = "BOPPrefetcher"
+    cxx_class = "Prefetcher::BOP"
     cxx_header = "mem/cache/prefetch/bop.hh"
     score_max = Param.Unsigned(31, "Max. score to update the best offset")
     round_max = Param.Unsigned(100, "Max. round to update the best offset")
@@ -431,7 +443,7 @@ class BOPPrefetcher(QueuedPrefetcher):
 
 class SBOOEPrefetcher(QueuedPrefetcher):
     type = 'SBOOEPrefetcher'
-    cxx_class = 'SBOOEPrefetcher'
+    cxx_class = 'Prefetcher::SBOOE'
     cxx_header = "mem/cache/prefetch/sbooe.hh"
     latency_buffer_size = Param.Int(32, "Entries in the latency buffer")
     sequential_prefetchers = Param.Int(9, "Number of sequential prefetchers")
@@ -441,7 +453,7 @@ class SBOOEPrefetcher(QueuedPrefetcher):
 
 class STeMSPrefetcher(QueuedPrefetcher):
     type = "STeMSPrefetcher"
-    cxx_class = "STeMSPrefetcher"
+    cxx_class = "Prefetcher::STeMS"
     cxx_header = "mem/cache/prefetch/spatio_temporal_memory_streaming.hh"
 
     spatial_region_size = Param.MemorySize("2kB",
@@ -484,7 +496,7 @@ class HWPProbeEventRetiredInsts(HWPProbeEvent):
 
 class PIFPrefetcher(QueuedPrefetcher):
     type = 'PIFPrefetcher'
-    cxx_class = 'PIFPrefetcher'
+    cxx_class = 'Prefetcher::PIF'
     cxx_header = "mem/cache/prefetch/pif.hh"
     cxx_exports = [
         PyBindMethod("addEventProbeRetiredInsts"),

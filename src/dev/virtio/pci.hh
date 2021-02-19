@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __DEV_VIRTIO_PCI_HH__
@@ -82,8 +80,6 @@ class PciVirtIO : public PciDevice
     bool interruptDeliveryPending;
 
     VirtIODeviceBase &vio;
-
-    MakeCallback<PciVirtIO, &PciVirtIO::kick> callbackKick;
 };
 
 #endif // __DEV_VIRTIO_PCI_HH__

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "dev/x86/i8254.hh"
@@ -40,9 +38,11 @@ X86ISA::I8254::counterInterrupt(unsigned int num)
 {
     DPRINTF(I8254, "Interrupt from counter %d.\n", num);
     if (num == 0) {
-        intPin->raise();
-        //XXX This is a hack.
-        intPin->lower();
+        for (auto *wire: intPin) {
+            wire->raise();
+            //XXX This is a hack.
+            wire->lower();
+        }
     }
 }
 

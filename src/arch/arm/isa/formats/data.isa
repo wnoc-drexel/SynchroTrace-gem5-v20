@@ -1,4 +1,4 @@
-// Copyright (c) 2010,2017-2018 ARM Limited
+// Copyright (c) 2010,2017-2018, 2020 ARM Limited
 // All rights reserved
 //
 // The license below extends only to copyright in the software and shall
@@ -32,8 +32,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gabe Black
 
 def format ArmMiscMedia() {{
     decode_block = '''
@@ -1138,8 +1136,7 @@ def format ArmMisc() {{
                       case 0x4:
                         return new SevInst(machInst);
                       case 0x5:
-                        return new WarnUnimplemented(
-                                "sevl", machInst);
+                        return new SevlInst(machInst);
                       case 0x10:
                         return new WarnUnimplemented(
                                 "esb", machInst);
@@ -1285,6 +1282,8 @@ def format Thumb16Misc() {{
                 return new WfiInst(machInst);
               case 0x4:
                 return new SevInst(machInst);
+              case 0x5:
+                return new SevlInst(machInst);
               default:
                 return new WarnUnimplemented("unallocated_hint", machInst);
             }

@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019-2020 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 2018 Metempsy Technology Consulting
  * All rights reserved.
  *
@@ -24,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jairo Balart
  */
 
 #include "dev/arm/gic_v3_redistributor.hh"
@@ -34,10 +44,11 @@
 #include "debug/GIC.hh"
 #include "dev/arm/gic_v3_cpu_interface.hh"
 #include "dev/arm/gic_v3_distributor.hh"
-#include "mem/fs_translating_port_proxy.hh"
+
+using namespace ArmISA;
 
 const AddrRange Gicv3Redistributor::GICR_IPRIORITYR(SGI_base + 0x0400,
-                                                    SGI_base + 0x041f);
+                                                    SGI_base + 0x0420);
 
 Gicv3Redistributor::Gicv3Redistributor(Gicv3 * gic, uint32_t cpu_id)
     : gic(gic),
@@ -45,14 +56,23 @@ Gicv3Redistributor::Gicv3Redistributor(Gicv3 * gic, uint32_t cpu_id)
       cpuInterface(nullptr),
       cpuId(cpu_id),
       memProxy(nullptr),
-      irqGroup(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqEnabled(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqPending(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqActive(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqPriority(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqConfig(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqGrpmod(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
-      irqNsacr(Gicv3::SGI_MAX + Gicv3::PPI_MAX),
+      peInLowPowerState(true),
+      irqGroup(Gicv3::SGI_MAX + Gicv3::PPI_MAX, 0),
+      irqEnabled(Gicv3::SGI_MAX + Gicv3::PPI_MAX, false),
+      irqPending(Gicv3::SGI_MAX + Gicv3::PPI_MAX, false),
+      irqPendingIspendr(Gicv3::SGI_MAX + Gicv3::PPI_MAX, false),
+      irqActive(Gicv3::SGI_MAX + Gicv3::PPI_MAX, false),
+      irqPriority(Gicv3::SGI_MAX + Gicv3::PPI_MAX, 0),
+      irqConfig(Gicv3::SGI_MAX + Gicv3::PPI_MAX, Gicv3::INT_EDGE_TRIGGERED),
+      irqGrpmod(Gicv3::SGI_MAX + Gicv3::PPI_MAX, 0),
+      irqNsacr(Gicv3::SGI_MAX + Gicv3::PPI_MAX, 0),
+      DPG1S(false),
+      DPG1NS(false),
+      DPG0(false),
+      EnableLPIs(false),
+      lpiConfigurationTablePtr(0),
+      lpiIDBits(0),
+      lpiPendingTablePtr(0),
       addrRangeSize(gic->params()->gicv4 ? 0x40000 : 0x20000)
 {
 }
@@ -64,38 +84,6 @@ Gicv3Redistributor::init()
     cpuInterface = gic->getCPUInterface(cpuId);
 
     memProxy = &gic->getSystem()->physProxy;
-}
-
-void
-Gicv3Redistributor::initState()
-{
-    reset();
-}
-
-void
-Gicv3Redistributor::reset()
-{
-    peInLowPowerState = true;
-    std::fill(irqGroup.begin(), irqGroup.end(), 0);
-    std::fill(irqEnabled.begin(), irqEnabled.end(), false);
-    std::fill(irqPending.begin(), irqPending.end(), false);
-    std::fill(irqActive.begin(), irqActive.end(), false);
-    std::fill(irqPriority.begin(), irqPriority.end(), 0);
-
-    // SGIs have edge-triggered behavior
-    for (uint32_t int_id = 0; int_id < Gicv3::SGI_MAX; int_id++) {
-        irqConfig[int_id] = Gicv3::INT_EDGE_TRIGGERED;
-    }
-
-    std::fill(irqGrpmod.begin(), irqGrpmod.end(), 0);
-    std::fill(irqNsacr.begin(), irqNsacr.end(), 0);
-    DPG1S = false;
-    DPG1NS = false;
-    DPG0 = false;
-    EnableLPIs = false;
-    lpiConfigurationTablePtr = 0;
-    lpiIDBits = 0;
-    lpiPendingTablePtr = 0;
 }
 
 uint64_t
@@ -173,7 +161,7 @@ Gicv3Redistributor::read(Addr addr, size_t size, bool is_secure_access)
            * (physical LPIs supported)
            */
           uint64_t affinity = getAffinity();
-          int last = cpuId == (gic->getSystem()->numContexts() - 1);
+          int last = cpuId == (gic->getSystem()->threads.size() - 1);
           return (affinity << 32) | (1 << 24) | (cpuId << 8) |
               (1 << 5) | (last << 4) | (1 << 3) | (1 << 0);
       }
@@ -432,22 +420,25 @@ Gicv3Redistributor::write(Addr addr, uint64_t data, size_t size,
       }
 
       case GICR_WAKER: // Wake Register
+      {
         if (!distributor->DS && !is_secure_access) {
             // RAZ/WI for non-secure accesses
             return;
         }
 
-        if (not peInLowPowerState and
-            (data & GICR_WAKER_ProcessorSleep)) {
+        bool pe_was_low_power = peInLowPowerState;
+        peInLowPowerState = data & GICR_WAKER_ProcessorSleep;
+        if (!pe_was_low_power && peInLowPowerState) {
             DPRINTF(GIC, "Gicv3Redistributor::write(): "
                     "PE entering in low power state\n");
-        } else if (peInLowPowerState and
-                   not(data & GICR_WAKER_ProcessorSleep)) {
+            updateDistributor();
+        } else if (pe_was_low_power && !peInLowPowerState) {
             DPRINTF(GIC, "Gicv3Redistributor::write(): powering up PE\n");
+            cpuInterface->deassertWakeRequest();
+            updateDistributor();
         }
-
-        peInLowPowerState = data & GICR_WAKER_ProcessorSleep;
         break;
+      }
 
       case GICR_IGROUPR0: // Interrupt Group Register 0
         if (!distributor->DS && !is_secure_access) {
@@ -521,10 +512,11 @@ Gicv3Redistributor::write(Addr addr, uint64_t data, size_t size,
                         "(GICR_ISPENDR0): int_id %d (PPI) "
                         "pending bit set\n", int_id);
                 irqPending[int_id] = true;
+                irqPendingIspendr[int_id] = true;
             }
         }
 
-        updateAndInformCPUInterface();
+        updateDistributor();
         break;
 
       case GICR_ICPENDR0:// Interrupt Clear-Pending Register 0
@@ -538,7 +530,7 @@ Gicv3Redistributor::write(Addr addr, uint64_t data, size_t size,
 
             bool clear = data & (1 << int_id) ? 1 : 0;
 
-            if (clear) {
+            if (clear && treatAsEdgeTriggered(int_id)) {
                 irqPending[int_id] = false;
             }
         }
@@ -591,6 +583,9 @@ Gicv3Redistributor::write(Addr addr, uint64_t data, size_t size,
 
         break;
 
+      case GICR_ICFGR0: // SGI Configuration Register
+        // WI
+        return;
       case GICR_ICFGR1: { // PPI Configuration Register
           int first_intid = Gicv3::SGI_MAX;
 
@@ -719,9 +714,21 @@ Gicv3Redistributor::sendPPInt(uint32_t int_id)
     assert((int_id >= Gicv3::SGI_MAX) &&
            (int_id < Gicv3::SGI_MAX + Gicv3::PPI_MAX));
     irqPending[int_id] = true;
+    irqPendingIspendr[int_id] = false;
     DPRINTF(GIC, "Gicv3Redistributor::sendPPInt(): "
             "int_id %d (PPI) pending bit set\n", int_id);
-    updateAndInformCPUInterface();
+    updateDistributor();
+}
+
+void
+Gicv3Redistributor::clearPPInt(uint32_t int_id)
+{
+    assert((int_id >= Gicv3::SGI_MAX) &&
+           (int_id < Gicv3::SGI_MAX + Gicv3::PPI_MAX));
+
+    if (isLevelSensitive(int_id)) {
+        irqPending[int_id] = false;
+    }
 }
 
 void
@@ -730,30 +737,36 @@ Gicv3Redistributor::sendSGI(uint32_t int_id, Gicv3::GroupId group, bool ns)
     assert(int_id < Gicv3::SGI_MAX);
     Gicv3::GroupId int_group = getIntGroup(int_id);
 
-    // asked for secure group 1
-    // configured as group 0
-    // send group 0
-    if (int_group == Gicv3::G0S && group == Gicv3::G1S) {
-        group = Gicv3::G0S;
-    }
+    bool forward = false;
 
-    if (group == Gicv3::G0S and int_group != Gicv3::G0S) {
-        return;
-    }
-
-    if (ns && distributor->DS == 0) {
+    if (ns) {
+        // Non-Secure EL1 and EL2 access
         int nsaccess = irqNsacr[int_id];
+        if (int_group == Gicv3::G0S) {
 
-        if ((int_group == Gicv3::G0S && nsaccess < 1) ||
-            (int_group == Gicv3::G1S && nsaccess < 2)) {
-            return;
+            forward = distributor->DS || (nsaccess >= 1);
+
+        } else if (int_group == Gicv3::G1S) {
+            forward = ((group == Gicv3::G1S || group == Gicv3::G1NS ) &&
+                      nsaccess == 2);
+        } else {
+            // G1NS
+            forward = group == Gicv3::G1NS;
         }
+    } else {
+        // Secure EL1 and EL3 access
+        forward = (group == int_group) ||
+            (group == Gicv3::G1S && int_group == Gicv3::G0S &&
+            distributor->DS);
     }
+
+    if (!forward) return;
 
     irqPending[int_id] = true;
+    irqPendingIspendr[int_id] = false;
     DPRINTF(GIC, "Gicv3ReDistributor::sendSGI(): "
             "int_id %d (SGI) pending bit set\n", int_id);
-    updateAndInformCPUInterface();
+    updateDistributor();
 }
 
 Gicv3::IntStatus
@@ -774,6 +787,12 @@ Gicv3Redistributor::intStatus(uint32_t int_id) const
     }
 }
 
+void
+Gicv3Redistributor::updateDistributor()
+{
+    distributor->update();
+}
+
 /*
  * Recalculate the highest priority pending interrupt after a
  * change to redistributor state.
@@ -781,8 +800,6 @@ Gicv3Redistributor::intStatus(uint32_t int_id) const
 void
 Gicv3Redistributor::update()
 {
-    bool new_hppi = false;
-
     for (int int_id = 0; int_id < Gicv3::SGI_MAX + Gicv3::PPI_MAX; int_id++) {
         Gicv3::GroupId int_group = getIntGroup(int_id);
         bool group_enabled = distributor->groupEnabled(int_group);
@@ -800,7 +817,6 @@ Gicv3Redistributor::update()
                 cpuInterface->hppi.intid = int_id;
                 cpuInterface->hppi.prio = irqPriority[int_id];
                 cpuInterface->hppi.group = int_group;
-                new_hppi = true;
             }
         }
     }
@@ -849,16 +865,18 @@ Gicv3Redistributor::update()
                     cpuInterface->hppi.intid = lpi_id;
                     cpuInterface->hppi.prio = lpi_priority;
                     cpuInterface->hppi.group = lpi_group;
-                    new_hppi = true;
                 }
             }
         }
     }
 
-    if (!new_hppi && cpuInterface->hppi.prio != 0xff &&
-        (cpuInterface->hppi.intid < Gicv3::SGI_MAX + Gicv3::PPI_MAX ||
-         cpuInterface->hppi.intid > SMALLEST_LPI_ID)) {
-        distributor->fullUpdate();
+    if (peInLowPowerState) {
+        if (cpuInterface->havePendingInterrupts()) {
+            cpuInterface->assertWakeRequest();
+            cpuInterface->clearPendingInterrupts();
+        }
+    } else {
+        cpuInterface->update();
     }
 }
 
@@ -937,18 +955,14 @@ Gicv3Redistributor::setClrLPI(uint64_t data, bool set)
         }
 
         lpi_pending_entry &= ~(1 << (lpi_pending_entry_bit_position));
+
+        // Remove the pending state from the cpu interface
+        cpuInterface->resetHppi(lpi_id);
     }
 
     writeEntryLPI(lpi_id, lpi_pending_entry);
 
-    updateAndInformCPUInterface();
-}
-
-void
-Gicv3Redistributor::updateAndInformCPUInterface()
-{
-    update();
-    cpuInterface->update();
+    updateDistributor();
 }
 
 Gicv3::GroupId
@@ -980,7 +994,9 @@ Gicv3Redistributor::getIntGroup(int int_id) const
 void
 Gicv3Redistributor::activateIRQ(uint32_t int_id)
 {
-    irqPending[int_id] = false;
+    if (treatAsEdgeTriggered(int_id)) {
+        irqPending[int_id] = false;
+    }
     irqActive[int_id] = true;
 }
 
@@ -993,7 +1009,7 @@ Gicv3Redistributor::deactivateIRQ(uint32_t int_id)
 uint32_t
 Gicv3Redistributor::getAffinity() const
 {
-    ThreadContext * tc = gic->getSystem()->getThreadContext(cpuId);
+    ThreadContext *tc = gic->getSystem()->threads[cpuId];
     uint64_t mpidr = getMPIDR(gic->getSystem(), tc);
     /*
      * Aff3 = MPIDR[39:32]
@@ -1040,6 +1056,7 @@ Gicv3Redistributor::serialize(CheckpointOut & cp) const
     SERIALIZE_CONTAINER(irqGroup);
     SERIALIZE_CONTAINER(irqEnabled);
     SERIALIZE_CONTAINER(irqPending);
+    SERIALIZE_CONTAINER(irqPendingIspendr);
     SERIALIZE_CONTAINER(irqActive);
     SERIALIZE_CONTAINER(irqPriority);
     SERIALIZE_CONTAINER(irqConfig);
@@ -1061,6 +1078,7 @@ Gicv3Redistributor::unserialize(CheckpointIn & cp)
     UNSERIALIZE_CONTAINER(irqGroup);
     UNSERIALIZE_CONTAINER(irqEnabled);
     UNSERIALIZE_CONTAINER(irqPending);
+    UNSERIALIZE_CONTAINER(irqPendingIspendr);
     UNSERIALIZE_CONTAINER(irqActive);
     UNSERIALIZE_CONTAINER(irqPriority);
     UNSERIALIZE_CONTAINER(irqConfig);

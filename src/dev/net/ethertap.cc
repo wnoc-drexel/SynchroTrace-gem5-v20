@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 /* @file
@@ -198,7 +196,7 @@ EtherTapBase::sendSimulated(void *data, size_t len)
         DPRINTF(Ethernet, "bus busy...buffer for retransmission\n");
         packetBuffer.push(packet);
         if (!txEvent.scheduled())
-            schedule(txEvent, curTick() + retryTime);
+            schedule(txEvent, curTick() + SimClock::Int::ns);
     } else if (dump) {
         dump->dump(packet);
     }
@@ -220,7 +218,7 @@ EtherTapBase::retransmit()
     }
 
     if (!packetBuffer.empty() && !txEvent.scheduled())
-        schedule(txEvent, curTick() + retryTime);
+        schedule(txEvent, curTick() + SimClock::Int::ns);
 }
 
 

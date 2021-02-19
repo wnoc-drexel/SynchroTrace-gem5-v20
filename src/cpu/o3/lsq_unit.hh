@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014,2017-2018 ARM Limited
+ * Copyright (c) 2012-2014,2017-2018,2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
  */
 
 #ifndef __CPU_O3_LSQ_UNIT_HH__
@@ -48,16 +45,16 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <queue>
 
 #include "arch/generic/debugfaults.hh"
 #include "arch/generic/vec_reg.hh"
-#include "arch/isa_traits.hh"
 #include "arch/locked_mem.hh"
-#include "arch/mmapped_ipr.hh"
 #include "config/the_isa.hh"
 #include "cpu/inst_seq.hh"
 #include "cpu/timebuf.hh"
+#include "debug/HtmCpu.hh"
 #include "debug/LSQUnit.hh"
 #include "mem/packet.hh"
 #include "mem/port.hh"
@@ -209,6 +206,14 @@ class LSQUnit
     };
     using LQEntry = LSQEntry;
 
+    /** Coverage of one address range with another */
+    enum class AddrRangeCoverage
+    {
+        PartialAddrRangeCoverage, /* Two ranges partly overlap */
+        FullAddrRangeCoverage, /* One range fully covers another */
+        NoAddrRangeCoverage /* Two ranges are disjoint */
+    };
+
   public:
     using LoadQueue = CircularQueue<LQEntry>;
     using StoreQueue = CircularQueue<SQEntry>;
@@ -221,7 +226,10 @@ class LSQUnit
      * contructor is deleted explicitly. However, STL vector requires
      * a valid copy constructor for the base type at compile time.
      */
-    LSQUnit(const LSQUnit &l) { panic("LSQUnit is not copy-able"); }
+    LSQUnit(const LSQUnit &l): stats(nullptr)
+    {
+        panic("LSQUnit is not copy-able");
+    }
 
     /** Initializes the LSQ unit with the specified number of entries. */
     void init(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params,
@@ -230,11 +238,8 @@ class LSQUnit
     /** Returns the name of the LSQ unit. */
     std::string name() const;
 
-    /** Registers statistics. */
-    void regStats();
-
     /** Sets the pointer to the dcache port. */
-    void setDcachePort(MasterPort *dcache_port);
+    void setDcachePort(RequestPort *dcache_port);
 
     /** Perform sanity checks after a drain. */
     void drainSanityCheck() const;
@@ -308,6 +313,21 @@ class LSQUnit
 
     /** Returns the number of stores in the SQ. */
     int numStores() { return stores; }
+
+    // hardware transactional memory
+    int numHtmStarts() const { return htmStarts; }
+    int numHtmStops() const { return htmStops; }
+    void resetHtmStartsStops() { htmStarts = htmStops = 0; }
+    uint64_t getLatestHtmUid() const
+    {
+        const auto& htm_cpt = cpu->tcBase(lsqID)->getHtmCheckpointPtr();
+        return htm_cpt->getHtmUid();
+    }
+    void setLastRetiredHtmUid(uint64_t htm_uid)
+    {
+        assert(htm_uid >= lastRetiredHtmUid);
+        lastRetiredHtmUid = htm_uid;
+    }
 
     /** Returns if either the LQ or SQ is full. */
     bool isFull() { return lqFull() || sqFull(); }
@@ -394,7 +414,7 @@ class LSQUnit
     LSQ *lsq;
 
     /** Pointer to the dcache port.  Used only for sending. */
-    MasterPort *dcachePort;
+    RequestPort *dcachePort;
 
     /** Particularisation of the LSQSenderState to the LQ. */
     class LQSenderState : public LSQSenderState
@@ -493,6 +513,13 @@ class LSQUnit
     /** The number of store instructions in the SQ waiting to writeback. */
     int storesToWB;
 
+    // hardware transactional memory
+    // nesting depth
+    int htmStarts;
+    int htmStops;
+    // sanity checks and debugging
+    uint64_t lastRetiredHtmUid;
+
     /** The index of the first instruction that may be ready to be
      * written back, and has not yet been written back.
      */
@@ -535,39 +562,35 @@ class LSQUnit
     /** Flag for memory model. */
     bool needsTSO;
 
+  protected:
     // Will also need how many read/write ports the Dcache has.  Or keep track
     // of that in stage that is one level up, and only call executeLoad/Store
     // the appropriate number of times.
-    /** Total number of loads forwaded from LSQ stores. */
-    Stats::Scalar lsqForwLoads;
+    struct LSQUnitStats : public Stats::Group{
+        LSQUnitStats(Stats::Group *parent);
 
-    /** Total number of loads ignored due to invalid addresses. */
-    Stats::Scalar invAddrLoads;
+        /** Total number of loads forwaded from LSQ stores. */
+        Stats::Scalar forwLoads;
 
-    /** Total number of squashed loads. */
-    Stats::Scalar lsqSquashedLoads;
+        /** Total number of squashed loads. */
+        Stats::Scalar squashedLoads;
 
-    /** Total number of responses from the memory system that are
-     * ignored due to the instruction already being squashed. */
-    Stats::Scalar lsqIgnoredResponses;
+        /** Total number of responses from the memory system that are
+         * ignored due to the instruction already being squashed. */
+        Stats::Scalar ignoredResponses;
 
-    /** Tota number of memory ordering violations. */
-    Stats::Scalar lsqMemOrderViolation;
+        /** Tota number of memory ordering violations. */
+        Stats::Scalar memOrderViolation;
 
-    /** Total number of squashed stores. */
-    Stats::Scalar lsqSquashedStores;
+        /** Total number of squashed stores. */
+        Stats::Scalar squashedStores;
 
-    /** Total number of software prefetches ignored due to invalid addresses. */
-    Stats::Scalar invAddrSwpfs;
+        /** Number of loads that were rescheduled. */
+        Stats::Scalar rescheduledLoads;
 
-    /** Ready loads blocked due to partial store-forwarding. */
-    Stats::Scalar lsqBlockedLoads;
-
-    /** Number of loads that were rescheduled. */
-    Stats::Scalar lsqRescheduledLoads;
-
-    /** Number of times the LSQ is blocked due to the cache. */
-    Stats::Scalar lsqCacheBlocked;
+        /** Number of times the LSQ is blocked due to the cache. */
+        Stats::Scalar blockedByCache;
+    } stats;
 
   public:
     /** Executes the load at the given index. */
@@ -632,7 +655,7 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
         iewStage->rescheduleMemInst(load_inst);
         load_inst->clearIssued();
         load_inst->effAddrValid(false);
-        ++lsqRescheduledLoads;
+        ++stats.rescheduledLoads;
         DPRINTF(LSQUnit, "Strictly ordered load [sn:%lli] PC %s\n",
                 load_inst->seqNum, load_inst->pcState());
 
@@ -660,18 +683,52 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
         load_inst->recordResult(true);
     }
 
-    if (req->mainRequest()->isMmappedIpr()) {
+    if (req->mainRequest()->isLocalAccess()) {
         assert(!load_inst->memData);
+        assert(!load_inst->inHtmTransactionalState());
         load_inst->memData = new uint8_t[MaxDataBytes];
 
         ThreadContext *thread = cpu->tcBase(lsqID);
         PacketPtr main_pkt = new Packet(req->mainRequest(), MemCmd::ReadReq);
 
-        Cycles delay = req->handleIprRead(thread, main_pkt);
+        main_pkt->dataStatic(load_inst->memData);
+
+        Cycles delay = req->mainRequest()->localAccessor(thread, main_pkt);
 
         WritebackEvent *wb = new WritebackEvent(load_inst, main_pkt, this);
         cpu->schedule(wb, cpu->clockEdge(delay));
         return NoFault;
+    }
+
+    // hardware transactional memory
+    if (req->mainRequest()->isHTMStart() || req->mainRequest()->isHTMCommit())
+    {
+        // don't want to send nested transactionStarts and
+        // transactionStops outside of core, e.g. to Ruby
+        if (req->mainRequest()->getFlags().isSet(Request::NO_ACCESS)) {
+            Cycles delay(0);
+            PacketPtr data_pkt =
+                new Packet(req->mainRequest(), MemCmd::ReadReq);
+
+            // Allocate memory if this is the first time a load is issued.
+            if (!load_inst->memData) {
+                load_inst->memData =
+                    new uint8_t[req->mainRequest()->getSize()];
+                // sanity checks espect zero in request's data
+                memset(load_inst->memData, 0, req->mainRequest()->getSize());
+            }
+
+            data_pkt->dataStatic(load_inst->memData);
+            if (load_inst->inHtmTransactionalState()) {
+                data_pkt->setHtmTransactional(
+                    load_inst->getHtmTransactionUid());
+            }
+            data_pkt->makeResponse();
+
+            WritebackEvent *wb = new WritebackEvent(load_inst, data_pkt, this);
+            cpu->schedule(wb, cpu->clockEdge(delay));
+            return NoFault;
+        }
     }
 
     // Check the SQ for any previous stores that might lead to forwarding
@@ -705,6 +762,8 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
             bool lower_load_has_store_part = req_s < st_e;
             bool upper_load_has_store_part = req_e > st_s;
 
+            auto coverage = AddrRangeCoverage::NoAddrRangeCoverage;
+
             // If the store entry is not atomic (atomic does not have valid
             // data), the store has all of the data needed, and
             // the load is not LLSC, then
@@ -713,6 +772,32 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
                 store_has_lower_limit && store_has_upper_limit &&
                 !req->mainRequest()->isLLSC()) {
 
+                const auto& store_req = store_it->request()->mainRequest();
+                coverage = store_req->isMasked() ?
+                    AddrRangeCoverage::PartialAddrRangeCoverage :
+                    AddrRangeCoverage::FullAddrRangeCoverage;
+            } else if (
+                // This is the partial store-load forwarding case where a store
+                // has only part of the load's data and the load isn't LLSC
+                (!req->mainRequest()->isLLSC() &&
+                 ((store_has_lower_limit && lower_load_has_store_part) ||
+                  (store_has_upper_limit && upper_load_has_store_part) ||
+                  (lower_load_has_store_part && upper_load_has_store_part))) ||
+                // The load is LLSC, and the store has all or part of the
+                // load's data
+                (req->mainRequest()->isLLSC() &&
+                 ((store_has_lower_limit || upper_load_has_store_part) &&
+                  (store_has_upper_limit || lower_load_has_store_part))) ||
+                // The store entry is atomic and has all or part of the load's
+                // data
+                (store_it->instruction()->isAtomic() &&
+                 ((store_has_lower_limit || upper_load_has_store_part) &&
+                  (store_has_upper_limit || lower_load_has_store_part)))) {
+
+                coverage = AddrRangeCoverage::PartialAddrRangeCoverage;
+            }
+
+            if (coverage == AddrRangeCoverage::FullAddrRangeCoverage) {
                 // Get shift amount for offset into the store's data.
                 int shift_amt = req->mainRequest()->getVaddr() -
                     store_it->instruction()->effAddr;
@@ -738,6 +823,35 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
                         MemCmd::ReadReq);
                 data_pkt->dataStatic(load_inst->memData);
 
+                // hardware transactional memory
+                // Store to load forwarding within a transaction
+                // This should be okay because the store will be sent to
+                // the memory subsystem and subsequently get added to the
+                // write set of the transaction. The write set has a stronger
+                // property than the read set, so the load doesn't necessarily
+                // have to be there.
+                assert(!req->mainRequest()->isHTMCmd());
+                if (load_inst->inHtmTransactionalState()) {
+                    assert (!storeQueue[store_it._idx].completed());
+                    assert (
+                        storeQueue[store_it._idx].instruction()->
+                          inHtmTransactionalState());
+                    assert (
+                        load_inst->getHtmTransactionUid() ==
+                        storeQueue[store_it._idx].instruction()->
+                          getHtmTransactionUid());
+                    data_pkt->setHtmTransactional(
+                        load_inst->getHtmTransactionUid());
+                    DPRINTF(HtmCpu, "HTM LD (ST2LDF) "
+                      "pc=0x%lx - vaddr=0x%lx - "
+                      "paddr=0x%lx - htmUid=%u\n",
+                      load_inst->instAddr(),
+                      data_pkt->req->hasVaddr() ?
+                        data_pkt->req->getVaddr() : 0lu,
+                      data_pkt->getAddr(),
+                      load_inst->getHtmTransactionUid());
+                }
+
                 if (req->isAnyOutstandingRequest()) {
                     assert(req->_numOutstandingPackets > 0);
                     // There are memory requests packets in flight already.
@@ -756,27 +870,10 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
                 cpu->schedule(wb, curTick());
 
                 // Don't need to do anything special for split loads.
-                ++lsqForwLoads;
+                ++stats.forwLoads;
 
                 return NoFault;
-            } else if (
-                // This is the partial store-load forwarding case where a store
-                // has only part of the load's data and the load isn't LLSC
-                (!req->mainRequest()->isLLSC() &&
-                 ((store_has_lower_limit && lower_load_has_store_part) ||
-                  (store_has_upper_limit && upper_load_has_store_part) ||
-                  (lower_load_has_store_part && upper_load_has_store_part))) ||
-                // The load is LLSC, and the store has all or part of the
-                // load's data
-                (req->mainRequest()->isLLSC() &&
-                 ((store_has_lower_limit || upper_load_has_store_part) &&
-                  (store_has_upper_limit || lower_load_has_store_part))) ||
-                // The store entry is atomic and has all or part of the load's
-                // data
-                (store_it->instruction()->isAtomic() &&
-                 ((store_has_lower_limit || upper_load_has_store_part) &&
-                  (store_has_upper_limit || lower_load_has_store_part)))) {
-
+            } else if (coverage == AddrRangeCoverage::PartialAddrRangeCoverage) {
                 // If it's already been written back, then don't worry about
                 // stalling on it.
                 if (store_it->completed()) {
@@ -800,7 +897,7 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
                 iewStage->rescheduleMemInst(load_inst);
                 load_inst->clearIssued();
                 load_inst->effAddrValid(false);
-                ++lsqRescheduledLoads;
+                ++stats.rescheduledLoads;
 
                 // Do not generate a writeback event as this instruction is not
                 // complete.
@@ -823,6 +920,15 @@ LSQUnit<Impl>::read(LSQRequest *req, int load_idx)
     // Allocate memory if this is the first time a load is issued.
     if (!load_inst->memData) {
         load_inst->memData = new uint8_t[req->mainRequest()->getSize()];
+    }
+
+
+    // hardware transactional memory
+    if (req->mainRequest()->isHTMCmd()) {
+        // this is a simple sanity check
+        // the Ruby cache controller will set
+        // memData to 0x0ul if successful.
+        *load_inst->memData = (uint64_t) 0x1ull;
     }
 
     // For now, load throughput is constrained by the number of

@@ -1,4 +1,4 @@
-# Copyright (c) 2012-2013, 2015-2018 ARM Limited
+# Copyright (c) 2012-2013, 2015-2021 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -32,22 +32,19 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andreas Sandberg
-#          Giacomo Gabrielli
 
 from m5.params import *
 from m5.proxy import *
-from m5.SimObject import SimObject
 
 from m5.objects.ArmPMU import ArmPMU
 from m5.objects.ArmSystem import SveVectorLength
+from m5.objects.BaseISA import BaseISA
 from m5.objects.ISACommon import VecRegRenameMode
 
-# Enum for DecoderFlavour
-class DecoderFlavour(Enum): vals = ['Generic']
+# Enum for DecoderFlavor
+class DecoderFlavor(Enum): vals = ['Generic']
 
-class ArmISA(SimObject):
+class ArmISA(BaseISA):
     type = 'ArmISA'
     cxx_class = 'ArmISA::ISA'
     cxx_header = "arch/arm/isa.hh"
@@ -55,9 +52,14 @@ class ArmISA(SimObject):
     system = Param.System(Parent.any, "System this ISA object belongs to")
 
     pmu = Param.ArmPMU(NULL, "Performance Monitoring Unit")
-    decoderFlavour = Param.DecoderFlavour('Generic', "Decoder flavour specification")
+    decoderFlavor = Param.DecoderFlavor(
+            'Generic', "Decoder flavor specification")
 
-    midr = Param.UInt32(0x410fc0f0, "MIDR value")
+    # If no MIDR value is provided, 0x0 is treated by gem5 as follows:
+    # When 'highest_el_is_64' (AArch64 support) is:
+    #   True  -> Cortex-A57 TRM r0p0 MIDR is used
+    #   False -> Cortex-A15 TRM r0p0 MIDR is used
+    midr = Param.UInt32(0x0, "MIDR value")
 
     # See section B4.1.89 - B4.1.92 of the ARM ARM
     #  VMSAv7 support
@@ -77,7 +79,7 @@ class ArmISA(SimObject):
     id_isar2 = Param.UInt32(0x21232141, "Instruction Set Attribute Register 2")
     id_isar3 = Param.UInt32(0x01112131, "Instruction Set Attribute Register 3")
     id_isar4 = Param.UInt32(0x10010142, "Instruction Set Attribute Register 4")
-    id_isar5 = Param.UInt32(0x00000000, "Instruction Set Attribute Register 5")
+    id_isar5 = Param.UInt32(0x10000000, "Instruction Set Attribute Register 5")
 
     fpsid = Param.UInt32(0x410430a0, "Floating-point System ID Register")
 
@@ -88,25 +90,26 @@ class ArmISA(SimObject):
     id_aa64afr1_el1 = Param.UInt64(0x0000000000000000,
         "AArch64 Auxiliary Feature Register 1")
 
-    # 1 CTX CMPs | 2 WRPs | 2 BRPs | !PMU | !Trace | Debug v8-A
-    id_aa64dfr0_el1 = Param.UInt64(0x0000000000101006,
+    # 1 CTX CMPs | 16 WRPs | 16 BRPs | !PMU | !Trace | Debug v8-A
+    id_aa64dfr0_el1 = Param.UInt64(0x0000000000F0F006,
         "AArch64 Debug Feature Register 0")
     # Reserved for future expansion
     id_aa64dfr1_el1 = Param.UInt64(0x0000000000000000,
         "AArch64 Debug Feature Register 1")
 
-    # !CRC32 | !SHA2 | !SHA1 | !AES
+    # !TME | !Atomic | !CRC32 | !SHA2 | !SHA1 | !AES
     id_aa64isar0_el1 = Param.UInt64(0x0000000000000000,
         "AArch64 Instruction Set Attribute Register 0")
-    # Reserved for future expansion
-    id_aa64isar1_el1 = Param.UInt64(0x0000000000000000,
+
+    # GPI = 0x0 | GPA = 0x1 | API=0x0 | FCMA | JSCVT | APA=0x1
+    id_aa64isar1_el1 = Param.UInt64(0x0000000001011010,
         "AArch64 Instruction Set Attribute Register 1")
 
     # 4K | 64K | !16K | !BigEndEL0 | !SNSMem | !BigEnd | 8b ASID | 40b PA
     id_aa64mmfr0_el1 = Param.UInt64(0x0000000000f00002,
         "AArch64 Memory Model Feature Register 0")
-    # Reserved for future expansion
-    id_aa64mmfr1_el1 = Param.UInt64(0x0000000000000000,
+    # PAN | HPDS | !VHE
+    id_aa64mmfr1_el1 = Param.UInt64(0x0000000000101000,
         "AArch64 Memory Model Feature Register 1")
     id_aa64mmfr2_el1 = Param.UInt64(0x0000000000000000,
         "AArch64 Memory Model Feature Register 2")

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #ifndef __ARCH_SPARC_TLB_HH__
@@ -169,6 +167,8 @@ class TLB : public BaseTLB
     void dumpAll();
 
     Fault translateAtomic(
+            const RequestPtr &req, ThreadContext *tc, Mode mode) override;
+    Fault translateFunctional(
             const RequestPtr &req, ThreadContext *tc, Mode mode) override;
     void translateTiming(
             const RequestPtr &req, ThreadContext *tc,

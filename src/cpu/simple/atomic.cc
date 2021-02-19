@@ -1,6 +1,6 @@
 /*
  * Copyright 2014 Google, Inc.
- * Copyright (c) 2012-2013,2015,2017-2018 ARM Limited
+ * Copyright (c) 2012-2013,2015,2017-2020 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -37,14 +37,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #include "cpu/simple/atomic.hh"
 
 #include "arch/locked_mem.hh"
-#include "arch/mmapped_ipr.hh"
 #include "arch/utility.hh"
 #include "base/output.hh"
 #include "config/the_isa.hh"
@@ -112,7 +109,7 @@ AtomicSimpleCPU::drain()
     if (switchedOut())
         return DrainState::Drained;
 
-    if (!isDrained()) {
+    if (!isCpuDrained()) {
         DPRINTF(Drain, "Requesting drain.\n");
         return DrainState::Draining;
     } else {
@@ -128,8 +125,8 @@ AtomicSimpleCPU::drain()
 void
 AtomicSimpleCPU::threadSnoop(PacketPtr pkt, ThreadID sender)
 {
-    DPRINTF(SimpleCPU, "received snoop pkt for addr:%#x %s\n", pkt->getAddr(),
-            pkt->cmdString());
+    DPRINTF(SimpleCPU, "%s received snoop pkt for addr:%#x %s\n",
+            __func__, pkt->getAddr(), pkt->cmdString());
 
     for (ThreadID tid = 0; tid < numThreads; tid++) {
         if (tid != sender) {
@@ -183,7 +180,7 @@ AtomicSimpleCPU::tryCompleteDrain()
         return false;
 
     DPRINTF(Drain, "tryCompleteDrain.\n");
-    if (!isDrained())
+    if (!isCpuDrained())
         return false;
 
     DPRINTF(Drain, "CPU done draining, processing drain event\n");
@@ -200,7 +197,7 @@ AtomicSimpleCPU::switchOut()
 
     assert(!tickEvent.scheduled());
     assert(_status == BaseSimpleCPU::Running || _status == Idle);
-    assert(isDrained());
+    assert(isCpuDrained());
 }
 
 
@@ -275,7 +272,7 @@ AtomicSimpleCPU::suspendContext(ThreadID thread_num)
 }
 
 Tick
-AtomicSimpleCPU::sendPacket(MasterPort &port, const PacketPtr &pkt)
+AtomicSimpleCPU::sendPacket(RequestPort &port, const PacketPtr &pkt)
 {
     return port.sendAtomic(pkt);
 }
@@ -283,8 +280,8 @@ AtomicSimpleCPU::sendPacket(MasterPort &port, const PacketPtr &pkt)
 Tick
 AtomicSimpleCPU::AtomicCPUDPort::recvAtomicSnoop(PacketPtr pkt)
 {
-    DPRINTF(SimpleCPU, "received snoop pkt for addr:%#x %s\n", pkt->getAddr(),
-            pkt->cmdString());
+    DPRINTF(SimpleCPU, "%s received atomic snoop pkt for addr:%#x %s\n",
+            __func__, pkt->getAddr(), pkt->cmdString());
 
     // X86 ISA: Snooping an invalidation for monitor/mwait
     AtomicSimpleCPU *cpu = (AtomicSimpleCPU *)(&owner);
@@ -313,8 +310,8 @@ AtomicSimpleCPU::AtomicCPUDPort::recvAtomicSnoop(PacketPtr pkt)
 void
 AtomicSimpleCPU::AtomicCPUDPort::recvFunctionalSnoop(PacketPtr pkt)
 {
-    DPRINTF(SimpleCPU, "received snoop pkt for addr:%#x %s\n", pkt->getAddr(),
-            pkt->cmdString());
+    DPRINTF(SimpleCPU, "%s received functional snoop pkt for addr:%#x %s\n",
+            __func__, pkt->getAddr(), pkt->cmdString());
 
     // X86 ISA: Snooping an invalidation for monitor/mwait
     AtomicSimpleCPU *cpu = (AtomicSimpleCPU *)(&owner);
@@ -353,15 +350,16 @@ AtomicSimpleCPU::genMemFragmentRequest(const RequestPtr& req, Addr frag_addr,
         auto it_start = byte_enable.begin() + (size - (frag_size + size_left));
         auto it_end = byte_enable.begin() + (size - size_left);
         if (isAnyActiveElement(it_start, it_end)) {
-            req->setVirt(0, frag_addr, frag_size, flags, dataMasterId(),
+            req->setVirt(frag_addr, frag_size, flags, dataRequestorId(),
                          inst_addr);
             req->setByteEnable(std::vector<bool>(it_start, it_end));
         } else {
             predicate = false;
         }
     } else {
-        req->setVirt(0, frag_addr, frag_size, flags, dataMasterId(),
+        req->setVirt(frag_addr, frag_size, flags, dataRequestorId(),
                      inst_addr);
+        req->setByteEnable(std::vector<bool>());
     }
 
     return predicate;
@@ -370,7 +368,7 @@ AtomicSimpleCPU::genMemFragmentRequest(const RequestPtr& req, Addr frag_addr,
 Fault
 AtomicSimpleCPU::readMem(Addr addr, uint8_t * data, unsigned size,
                          Request::Flags flags,
-                         const std::vector<bool>& byteEnable)
+                         const std::vector<bool>& byte_enable)
 {
     SimpleExecContext& t_info = *threadInfo[curThread];
     SimpleThread* thread = t_info.thread;
@@ -393,7 +391,7 @@ AtomicSimpleCPU::readMem(Addr addr, uint8_t * data, unsigned size,
 
     while (1) {
         predicate = genMemFragmentRequest(req, frag_addr, size, flags,
-                                          byteEnable, frag_size, size_left);
+                                          byte_enable, frag_size, size_left);
 
         // translate to physical address
         if (predicate) {
@@ -407,8 +405,8 @@ AtomicSimpleCPU::readMem(Addr addr, uint8_t * data, unsigned size,
             Packet pkt(req, Packet::makeReadCmd(req));
             pkt.dataStatic(data);
 
-            if (req->isMmappedIpr()) {
-                dcache_latency += TheISA::handleIprRead(thread->getTC(), &pkt);
+            if (req->isLocalAccess()) {
+                dcache_latency += req->localAccessor(thread->getTC(), &pkt);
             } else {
                 dcache_latency += sendPacket(dcachePort, &pkt);
             }
@@ -452,7 +450,7 @@ AtomicSimpleCPU::readMem(Addr addr, uint8_t * data, unsigned size,
 Fault
 AtomicSimpleCPU::writeMem(uint8_t *data, unsigned size, Addr addr,
                           Request::Flags flags, uint64_t *res,
-                          const std::vector<bool>& byteEnable)
+                          const std::vector<bool>& byte_enable)
 {
     SimpleExecContext& t_info = *threadInfo[curThread];
     SimpleThread* thread = t_info.thread;
@@ -484,7 +482,7 @@ AtomicSimpleCPU::writeMem(uint8_t *data, unsigned size, Addr addr,
 
     while (1) {
         predicate = genMemFragmentRequest(req, frag_addr, size, flags,
-                                          byteEnable, frag_size, size_left);
+                                          byte_enable, frag_size, size_left);
 
         // translate to physical address
         if (predicate)
@@ -512,9 +510,9 @@ AtomicSimpleCPU::writeMem(uint8_t *data, unsigned size, Addr addr,
                 Packet pkt(req, Packet::makeWriteCmd(req));
                 pkt.dataStatic(data);
 
-                if (req->isMmappedIpr()) {
+                if (req->isLocalAccess()) {
                     dcache_latency +=
-                        TheISA::handleIprWrite(thread->getTC(), &pkt);
+                        req->localAccessor(thread->getTC(), &pkt);
                 } else {
                     dcache_latency += sendPacket(dcachePort, &pkt);
 
@@ -540,7 +538,7 @@ AtomicSimpleCPU::writeMem(uint8_t *data, unsigned size, Addr addr,
         if (fault != NoFault || size_left == 0)
         {
             if (req->isLockedRMW() && fault == NoFault) {
-                assert(byteEnable.empty());
+                assert(!req->isMasked());
                 locked = false;
             }
 
@@ -565,7 +563,7 @@ AtomicSimpleCPU::writeMem(uint8_t *data, unsigned size, Addr addr,
 
 Fault
 AtomicSimpleCPU::amoMem(Addr addr, uint8_t* data, unsigned size,
-                        Request::Flags flags, AtomicOpFunctor *amo_op)
+                        Request::Flags flags, AtomicOpFunctorPtr amo_op)
 {
     SimpleExecContext& t_info = *threadInfo[curThread];
     SimpleThread* thread = t_info.thread;
@@ -594,8 +592,8 @@ AtomicSimpleCPU::amoMem(Addr addr, uint8_t* data, unsigned size,
     dcache_latency = 0;
 
     req->taskId(taskId());
-    req->setVirt(0, addr, size, flags, dataMasterId(),
-                 thread->pcState().instAddr(), amo_op);
+    req->setVirt(addr, size, flags, dataRequestorId(),
+                 thread->pcState().instAddr(), std::move(amo_op));
 
     // translate to physical address
     Fault fault = thread->dtb->translateAtomic(req, thread->getTC(),
@@ -608,8 +606,8 @@ AtomicSimpleCPU::amoMem(Addr addr, uint8_t* data, unsigned size,
         Packet pkt(req, Packet::makeWriteCmd(req));
         pkt.dataStatic(data);
 
-        if (req->isMmappedIpr())
-            dcache_latency += TheISA::handleIprRead(thread->getTC(), &pkt);
+        if (req->isLocalAccess())
+            dcache_latency += req->localAccessor(thread->getTC(), &pkt);
         else {
             dcache_latency += sendPacket(dcachePort, &pkt);
         }
@@ -715,10 +713,8 @@ AtomicSimpleCPU::tick()
                 if (fault == NoFault) {
                     countInst();
                     ppCommit->notify(std::make_pair(thread, curStaticInst));
-                }
-                else if (traceData && !DTRACE(ExecFaulting)) {
-                    delete traceData;
-                    traceData = NULL;
+                } else if (traceData) {
+                    traceFault();
                 }
 
                 if (fault != NoFault &&

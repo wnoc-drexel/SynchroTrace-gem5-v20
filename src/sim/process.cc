@@ -37,11 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
- *          Ali Saidi
- *          Brandon Potter
  */
 
 #include "sim/process.hh"
@@ -75,6 +70,37 @@
 using namespace std;
 using namespace TheISA;
 
+namespace
+{
+
+typedef std::vector<Process::Loader *> LoaderList;
+
+LoaderList &
+process_loaders()
+{
+    static LoaderList loaders;
+    return loaders;
+}
+
+} // anonymous namespace
+
+Process::Loader::Loader()
+{
+    process_loaders().emplace_back(this);
+}
+
+Process *
+Process::tryLoaders(ProcessParams *params, ::Loader::ObjectFile *obj_file)
+{
+    for (auto &loader: process_loaders()) {
+        Process *p = loader->load(params, obj_file);
+        if (p)
+            return p;
+    }
+
+    return nullptr;
+}
+
 static std::string
 normalize(std::string& directory)
 {
@@ -84,14 +110,12 @@ normalize(std::string& directory)
 }
 
 Process::Process(ProcessParams *params, EmulationPageTable *pTable,
-                 ObjectFile *obj_file)
+                 ::Loader::ObjectFile *obj_file)
     : SimObject(params), system(params->system),
       useArchPT(params->useArchPT),
       kvmInSE(params->kvmInSE),
       useForClone(false),
       pTable(pTable),
-      initVirtMem(system->getSystemPort(), this,
-                  SETranslatingPortProxy::Always),
       objFile(obj_file),
       argv(params->cmd), envp(params->env),
       executable(params->executable),
@@ -129,15 +153,10 @@ Process::Process(ProcessParams *params, EmulationPageTable *pTable,
     exitGroup = new bool();
     sigchld = new bool();
 
-    if (!debugSymbolTable) {
-        debugSymbolTable = new SymbolTable();
-        if (!objFile->loadGlobalSymbols(debugSymbolTable) ||
-            !objFile->loadLocalSymbols(debugSymbolTable) ||
-            !objFile->loadWeakSymbols(debugSymbolTable)) {
-            delete debugSymbolTable;
-            debugSymbolTable = nullptr;
-        }
-    }
+    image = objFile->buildImage();
+
+    if (::Loader::debugSymbolTable.empty())
+        ::Loader::debugSymbolTable = objFile->symtab();
 }
 
 void
@@ -161,9 +180,6 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
          */
         delete np->pTable;
         np->pTable = pTable;
-        auto &proxy = dynamic_cast<SETranslatingPortProxy &>(
-                ntc->getVirtProxy());
-        proxy.setPageTable(np->pTable);
 
         np->memState = memState;
     } else {
@@ -199,8 +215,8 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
          * host file descriptors are also dup'd so that the flags for the
          * host file descriptor is independent of the other process.
          */
+        std::shared_ptr<FDArray> nfds = np->fds;
         for (int tgt_fd = 0; tgt_fd < fds->getSize(); tgt_fd++) {
-            std::shared_ptr<FDArray> nfds = np->fds;
             std::shared_ptr<FDEntry> this_fde = (*fds)[tgt_fd];
             if (!this_fde) {
                 nfds->setFDEntry(tgt_fd, nullptr);
@@ -247,16 +263,6 @@ Process::regStats()
         ;
 }
 
-ThreadContext *
-Process::findFreeContext()
-{
-    for (auto &it : system->threadContexts) {
-        if (ThreadContext::Halted == it->status())
-            return it;
-    }
-    return nullptr;
-}
-
 void
 Process::revokeThreadContext(int context_id)
 {
@@ -271,18 +277,35 @@ Process::revokeThreadContext(int context_id)
 }
 
 void
+Process::init()
+{
+    // Patch the ld_bias for dynamic executables.
+    updateBias();
+
+    if (objFile->getInterpreter())
+        interpImage = objFile->getInterpreter()->buildImage();
+}
+
+void
 Process::initState()
 {
     if (contextIds.empty())
         fatal("Process %s is not associated with any HW contexts!\n", name());
 
     // first thread context for this process... initialize & enable
-    ThreadContext *tc = system->getThreadContext(contextIds[0]);
+    ThreadContext *tc = system->threads[contextIds[0]];
 
     // mark this context as active so it will start ticking.
     tc->activate();
 
-    pTable->initState(tc);
+    pTable->initState();
+
+    initVirtMem.reset(new SETranslatingPortProxy(
+                tc, SETranslatingPortProxy::Always));
+
+    // load object file into target memory
+    image.write(*initVirtMem);
+    interpImage.write(*initVirtMem);
 }
 
 DrainState
@@ -295,7 +318,7 @@ Process::drain()
 void
 Process::allocateMem(Addr vaddr, int64_t size, bool clobber)
 {
-    int npages = divCeil(size, (int64_t)PageBytes);
+    int npages = divCeil(size, (int64_t)system->getPageBytes());
     Addr paddr = system->allocPhysPages(npages);
     pTable->map(vaddr, paddr, size,
                 clobber ? EmulationPageTable::Clobber :
@@ -310,45 +333,21 @@ Process::replicatePage(Addr vaddr, Addr new_paddr, ThreadContext *old_tc,
         new_paddr = system->allocPhysPages(1);
 
     // Read from old physical page.
-    uint8_t *buf_p = new uint8_t[PageBytes];
-    old_tc->getVirtProxy().readBlob(vaddr, buf_p, PageBytes);
+    uint8_t *buf_p = new uint8_t[system->getPageBytes()];
+    old_tc->getVirtProxy().readBlob(vaddr, buf_p, system->getPageBytes());
 
     // Create new mapping in process address space by clobbering existing
     // mapping (if any existed) and then write to the new physical page.
     bool clobber = true;
-    pTable->map(vaddr, new_paddr, PageBytes, clobber);
-    new_tc->getVirtProxy().writeBlob(vaddr, buf_p, PageBytes);
+    pTable->map(vaddr, new_paddr, system->getPageBytes(), clobber);
+    new_tc->getVirtProxy().writeBlob(vaddr, buf_p, system->getPageBytes());
     delete[] buf_p;
 }
 
 bool
-Process::fixupStackFault(Addr vaddr)
+Process::fixupFault(Addr vaddr)
 {
-    Addr stack_min = memState->getStackMin();
-    Addr stack_base = memState->getStackBase();
-    Addr max_stack_size = memState->getMaxStackSize();
-
-    // Check if this is already on the stack and there's just no page there
-    // yet.
-    if (vaddr >= stack_min && vaddr < stack_base) {
-        allocateMem(roundDown(vaddr, PageBytes), PageBytes);
-        return true;
-    }
-
-    // We've accessed the next page of the stack, so extend it to include
-    // this address.
-    if (vaddr < stack_min && vaddr >= stack_base - max_stack_size) {
-        while (vaddr < stack_min) {
-            stack_min -= TheISA::PageBytes;
-            if (stack_base - stack_min > max_stack_size)
-                fatal("Maximum stack size exceeded\n");
-            allocateMem(stack_min, TheISA::PageBytes);
-            inform("Increasing stack size by one page.");
-        }
-        memState->setStackMin(stack_min);
-        return true;
-    }
-    return false;
+    return memState->fixupFault(vaddr);
 }
 
 void
@@ -387,24 +386,6 @@ Process::map(Addr vaddr, Addr paddr, int size, bool cacheable)
                 cacheable ? EmulationPageTable::MappingFlags(0) :
                             EmulationPageTable::Uncacheable);
     return true;
-}
-
-void
-Process::syscall(int64_t callnum, ThreadContext *tc, Fault *fault)
-{
-    numSyscalls++;
-
-    SyscallDesc *desc = getDesc(callnum);
-    if (desc == nullptr)
-        fatal("Syscall %d out of range", callnum);
-
-    desc->doSyscall(callnum, tc, fault);
-}
-
-RegVal
-Process::getSyscallArg(ThreadContext *tc, int &i, int width)
-{
-    return getSyscallArg(tc, i);
 }
 
 EmulatedDriver *
@@ -454,14 +435,14 @@ Process::checkPathRedirect(const std::string &filename)
 void
 Process::updateBias()
 {
-    ObjectFile *interp = objFile->getInterpreter();
+    auto *interp = objFile->getInterpreter();
 
     if (!interp || !interp->relocatable())
         return;
 
     // Determine how large the interpreters footprint will be in the process
     // address space.
-    Addr interp_mapsize = roundUp(interp->mapSize(), TheISA::PageBytes);
+    Addr interp_mapsize = roundUp(interp->mapSize(), system->getPageBytes());
 
     // We are allocating the memory area; set the bias to the lowest address
     // in the allocated memory region.
@@ -477,7 +458,7 @@ Process::updateBias()
     interp->updateBias(ld_bias);
 }
 
-ObjectFile *
+Loader::ObjectFile *
 Process::getInterpreter()
 {
     return objFile->getInterpreter();
@@ -486,7 +467,7 @@ Process::getInterpreter()
 Addr
 Process::getBias()
 {
-    ObjectFile *interp = getInterpreter();
+    auto *interp = getInterpreter();
 
     return interp ? interp->bias() : objFile->bias();
 }
@@ -494,7 +475,7 @@ Process::getBias()
 Addr
 Process::getStartPC()
 {
-    ObjectFile *interp = getInterpreter();
+    auto *interp = getInterpreter();
 
     return interp ? interp->entryPoint() : objFile->entryPoint();
 }
@@ -529,18 +510,16 @@ Process::absolutePath(const std::string &filename, bool host_filesystem)
 Process *
 ProcessParams::create()
 {
-    Process *process = nullptr;
-
     // If not specified, set the executable parameter equal to the
     // simulated system's zeroth command line parameter
     if (executable == "") {
         executable = cmd[0];
     }
 
-    ObjectFile *obj_file = createObjectFile(executable);
-    fatal_if(!obj_file, "Can't load object file %s", executable);
+    auto *obj_file = Loader::createObjectFile(executable);
+    fatal_if(!obj_file, "Cannot load object file %s.", executable);
 
-    process = ObjectFile::tryLoaders(this, obj_file);
+    Process *process = Process::tryLoaders(this, obj_file);
     fatal_if(!process, "Unknown error creating process object.");
 
     return process;

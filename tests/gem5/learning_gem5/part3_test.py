@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Jason Lowe-Power
 
 from testlib import *
 
@@ -42,6 +40,7 @@ gem5_verify_config(
     config_args = [],
     protocol = 'MSI',
     valid_isas=("X86",), # Currently only x86 has the threads test
+    valid_hosts=constants.target_host["X86"], # dynamically linked
 )
 
 gem5_verify_config(

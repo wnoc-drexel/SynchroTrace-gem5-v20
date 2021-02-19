@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012, 2016-2018 ARM Limited
+ * Copyright (c) 2011-2012, 2016-2018, 2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_THREAD_CONTEXT_HH__
@@ -47,11 +45,6 @@
 #include "config/the_isa.hh"
 #include "cpu/o3/isa_specific.hh"
 #include "cpu/thread_context.hh"
-
-class EndQuiesceEvent;
-namespace Kernel {
-    class Statistics;
-}
 
 /**
  * Derived ThreadContext class for use with the O3CPU.  It
@@ -75,6 +68,33 @@ class O3ThreadContext : public ThreadContext
    /** Pointer to the CPU. */
     O3CPU *cpu;
 
+    bool
+    schedule(PCEvent *e) override
+    {
+        return thread->pcEventQueue.schedule(e);
+    }
+    bool
+    remove(PCEvent *e) override
+    {
+        return thread->pcEventQueue.remove(e);
+    }
+
+    void
+    scheduleInstCountEvent(Event *event, Tick count) override
+    {
+        thread->comInstEventQueue.schedule(event, count);
+    }
+    void
+    descheduleInstCountEvent(Event *event) override
+    {
+        thread->comInstEventQueue.deschedule(event);
+    }
+    Tick
+    getCurrentInstCount() override
+    {
+        return thread->comInstEventQueue.getCurTick();
+    }
+
     /** Pointer to the thread state that this TC corrseponds to. */
     O3ThreadState<Impl> *thread;
 
@@ -86,7 +106,7 @@ class O3ThreadContext : public ThreadContext
 
     CheckerCPU *getCheckerCpuPtr() override { return NULL; }
 
-    TheISA::ISA *
+    BaseISA *
     getIsaPtr() override
     {
         return cpu->isa[thread->threadId()];
@@ -117,13 +137,6 @@ class O3ThreadContext : public ThreadContext
 
     /** Returns a pointer to the system. */
     System *getSystemPtr() override { return cpu->system; }
-
-    /** Returns a pointer to this thread's kernel statistics. */
-    ::Kernel::Statistics *
-    getKernelStats() override
-    {
-        return thread->kernelStats;
-    }
 
     /** Returns a pointer to this thread's process. */
     Process *getProcessPtr() override { return thread->getProcessPtr(); }
@@ -159,26 +172,13 @@ class O3ThreadContext : public ThreadContext
     /** Set the status to Halted. */
     void halt() override;
 
-    /** Dumps the function profiling information.
-     * @todo: Implement.
-     */
-    void dumpFuncProfile() override;
-
     /** Takes over execution of a thread from another CPU. */
     void takeOverFrom(ThreadContext *old_context) override;
-
-    /** Registers statistics associated with this TC. */
-    void regStats(const std::string &name) override;
 
     /** Reads the last tick that this thread was activated on. */
     Tick readLastActivate() override;
     /** Reads the last tick that this thread was suspended on. */
     Tick readLastSuspend() override;
-
-    /** Clears the function profiling information. */
-    void profileClear() override;
-    /** Samples the function profiling information. */
-    void profileSample() override;
 
     /** Copies the architectural registers from another TC into this TC. */
     void copyArchRegs(ThreadContext *tc) override;
@@ -421,20 +421,14 @@ class O3ThreadContext : public ThreadContext
 
     /** Executes a syscall in SE mode. */
     void
-    syscall(int64_t callnum, Fault *fault) override
+    syscall() override
     {
-        return cpu->syscall(callnum, thread->threadId(), fault);
+        return cpu->syscall(thread->threadId());
     }
 
     /** Reads the funcExeInst counter. */
     Counter readFuncExeInst() const override { return thread->funcExeInst; }
 
-    /** Returns pointer to the quiesce event. */
-    EndQuiesceEvent *
-    getQuiesceEvent() override
-    {
-        return this->thread->quiesceEvent;
-    }
     /** check if the cpu is currently in state update mode and squash if not.
      * This function will return true if a trap is pending or if a fault or
      * similar is currently writing to the thread context and doesn't want
@@ -485,6 +479,12 @@ class O3ThreadContext : public ThreadContext
 
     RegVal readCCRegFlat(RegIndex idx) const override;
     void setCCRegFlat(RegIndex idx, RegVal val) override;
+
+    // hardware transactional memory
+    void htmAbortTransaction(uint64_t htm_uid,
+                             HtmFailureFaultCause cause) override;
+    BaseHTMCheckpointPtr& getHtmCheckpointPtr() override;
+    void setHtmCheckpointPtr(BaseHTMCheckpointPtr new_cpt) override;
 };
 
 #endif

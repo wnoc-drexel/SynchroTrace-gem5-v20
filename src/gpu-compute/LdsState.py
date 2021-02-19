@@ -28,8 +28,6 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Joe Gross
 
 from m5.defines import buildEnv
 from m5.params import *
@@ -46,4 +44,4 @@ class LdsState(ClockedObject):
     bankConflictPenalty = Param.Int(1, 'penalty per LDS bank conflict when '\
                                     'accessing data')
     banks = Param.Int(32, 'Number of LDS banks')
-    cuPort = SlavePort("port that goes to the compute unit")
+    cuPort = ResponsePort("port that goes to the compute unit")

@@ -36,18 +36,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Nathan Binkert
- *          Andreas Sandberg
  */
-
-#include "arch/isa_traits.hh"
-#include "mem/packet.hh"
-#include "sim/byteswap.hh"
 
 #ifndef __MEM_PACKET_ACCESS_HH__
 #define __MEM_PACKET_ACCESS_HH__
+
+#include "mem/packet.hh"
+#include "sim/byteswap.hh"
 
 template <typename T>
 inline T
@@ -87,25 +82,16 @@ inline T
 Packet::get(ByteOrder endian) const
 {
     switch (endian) {
-      case BigEndianByteOrder:
+      case ByteOrder::big:
         return getBE<T>();
 
-      case LittleEndianByteOrder:
+      case ByteOrder::little:
         return getLE<T>();
 
       default:
         panic("Illegal byte order in Packet::get()\n");
     };
 }
-
-#if THE_ISA != NULL_ISA
-template <typename T>
-inline T
-Packet::get() const
-{
-    return TheISA::gtoh(getRaw<T>());
-}
-#endif
 
 template <typename T>
 inline void
@@ -126,24 +112,15 @@ inline void
 Packet::set(T v, ByteOrder endian)
 {
     switch (endian) {
-      case BigEndianByteOrder:
+      case ByteOrder::big:
         return setBE<T>(v);
 
-      case LittleEndianByteOrder:
+      case ByteOrder::little:
         return setLE<T>(v);
 
       default:
         panic("Illegal byte order in Packet::set()\n");
     };
 }
-
-#if THE_ISA != NULL_ISA
-template <typename T>
-inline void
-Packet::set(T v)
-{
-    setRaw(TheISA::htog(v));
-}
-#endif
 
 #endif //__MEM_PACKET_ACCESS_HH__

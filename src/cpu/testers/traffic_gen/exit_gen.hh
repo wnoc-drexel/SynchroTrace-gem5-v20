@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Riken Gohil
  */
 
 /**
@@ -56,8 +54,8 @@ class ExitGen : public BaseGen
 
   public:
 
-    ExitGen(SimObject &obj, MasterID master_id, Tick _duration)
-        : BaseGen(obj, master_id, _duration)
+    ExitGen(SimObject &obj, RequestorID requestor_id, Tick _duration)
+        : BaseGen(obj, requestor_id, _duration)
     { }
 
     void enter();

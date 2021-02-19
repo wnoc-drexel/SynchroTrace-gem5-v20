@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -165,13 +163,17 @@ class Fetch2 : public Named
     std::vector<Fetch2ThreadInfo> fetchInfo;
     ThreadID threadPriority;
 
-    /** Stats */
-    Stats::Scalar intInstructions;
-    Stats::Scalar fpInstructions;
-    Stats::Scalar vecInstructions;
-    Stats::Scalar loadInstructions;
-    Stats::Scalar storeInstructions;
-    Stats::Scalar amoInstructions;
+    struct Fetch2Stats : public Stats::Group
+    {
+        Fetch2Stats(MinorCPU *cpu);
+        /** Stats */
+        Stats::Scalar intInstructions;
+        Stats::Scalar fpInstructions;
+        Stats::Scalar vecInstructions;
+        Stats::Scalar loadInstructions;
+        Stats::Scalar storeInstructions;
+        Stats::Scalar amoInstructions;
+    } stats;
 
   protected:
     /** Get a piece of data to work on from the inputBuffer, or 0 if there
@@ -214,7 +216,6 @@ class Fetch2 : public Named
 
     void minorTrace() const;
 
-    void regStats();
 
     /** Is this stage drained?  For Fetch2, draining is initiated by
      *  Execute halting Fetch1 causing Fetch2 to naturally drain.

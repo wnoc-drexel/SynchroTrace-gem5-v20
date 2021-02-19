@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Gabrielli
  */
 
 #ifndef __ARCH_ARM_SVE_MACROMEM_HH__
@@ -45,8 +43,302 @@
 
 namespace ArmISA {
 
+template <typename Element,
+         template <typename> class MicroopLdMemType,
+         template <typename> class MicroopDeIntrlvType>
+class SveLdStructSS : public PredMacroOp
+{
+  protected:
+    IntRegIndex dest;
+    IntRegIndex gp;
+    IntRegIndex base;
+    IntRegIndex offset;
+    uint8_t numregs;
+
+  public:
+    SveLdStructSS(const char* mnem, ExtMachInst machInst, OpClass __opClass,
+            IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
+            IntRegIndex _offset, uint8_t _numregs)
+        : PredMacroOp(mnem, machInst, __opClass),
+          dest(_dest), gp(_gp), base(_base), offset(_offset), numregs(_numregs)
+    {
+        numMicroops = numregs * 2;
+
+        microOps = new StaticInstPtr[numMicroops];
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i] = new MicroopLdMemType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _gp, _base, _offset, _numregs, i);
+        }
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i + numregs] = new MicroopDeIntrlvType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>((_dest + i) % 32),
+                    _numregs, i, this);
+        }
+
+        microOps[0]->setFirstMicroop();
+        microOps[numMicroops - 1]->setLastMicroop();
+
+        for (StaticInstPtr *uop = microOps; !(*uop)->isLastMicroop(); uop++) {
+            (*uop)->setDelayedCommit();
+        }
+    }
+
+    Fault
+    execute(ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("Execute method called when it shouldn't!");
+        return NoFault;
+    }
+
+    std::string
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
+    {
+        std::stringstream ss;
+        printMnemonic(ss, "", false);
+        ccprintf(ss, "{");
+        for (int i = 0; i < numregs; ++i) {
+            printVecReg(ss, (dest + i) % 32, true);
+            if (i < numregs - 1)
+                ccprintf(ss, ", ");
+        }
+        ccprintf(ss, "}, ");
+        printVecPredReg(ss, gp);
+        ccprintf(ss, "/z, [");
+        printIntReg(ss, base);
+        ccprintf(ss, ", ");
+        printIntReg(ss, offset);
+        ccprintf(ss, "]");
+        return ss.str();
+    }
+};
+
+template <typename Element,
+         template <typename> class MicroopStMemType,
+         template <typename> class MicroopIntrlvType>
+class SveStStructSS : public PredMacroOp
+{
+  protected:
+    IntRegIndex dest;
+    IntRegIndex gp;
+    IntRegIndex base;
+    IntRegIndex offset;
+    uint8_t numregs;
+
+  public:
+    SveStStructSS(const char* mnem, ExtMachInst machInst, OpClass __opClass,
+            IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
+            IntRegIndex _offset, uint8_t _numregs)
+        : PredMacroOp(mnem, machInst, __opClass),
+          dest(_dest), gp(_gp), base(_base), offset(_offset), numregs(_numregs)
+    {
+        numMicroops = numregs * 2;
+
+        microOps = new StaticInstPtr[numMicroops];
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i] = new MicroopIntrlvType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _dest, _numregs, i, this);
+        }
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i + numregs] = new MicroopStMemType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _gp, _base, _offset, _numregs, i);
+        }
+
+        microOps[0]->setFirstMicroop();
+        microOps[numMicroops - 1]->setLastMicroop();
+
+        for (StaticInstPtr *uop = microOps; !(*uop)->isLastMicroop(); uop++) {
+            (*uop)->setDelayedCommit();
+        }
+    }
+
+    Fault
+    execute(ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("Execute method called when it shouldn't!");
+        return NoFault;
+    }
+
+    std::string
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
+    {
+        std::stringstream ss;
+        printMnemonic(ss, "", false);
+        ccprintf(ss, "{");
+        for (int i = 0; i < numregs; ++i) {
+            printVecReg(ss, (dest + i) % 32, true);
+            if (i < numregs - 1)
+                ccprintf(ss, ", ");
+        }
+        ccprintf(ss, "}, ");
+        printVecPredReg(ss, gp);
+        ccprintf(ss, ", [");
+        printIntReg(ss, base);
+        ccprintf(ss, ", ");
+        printIntReg(ss, offset);
+        ccprintf(ss, "]");
+        return ss.str();
+    }
+};
+
+
+template <typename Element,
+         template <typename> class MicroopLdMemType,
+         template <typename> class MicroopDeIntrlvType>
+class SveLdStructSI : public PredMacroOp
+{
+  protected:
+    IntRegIndex dest;
+    IntRegIndex gp;
+    IntRegIndex base;
+    int64_t imm;
+    uint8_t numregs;
+
+  public:
+    SveLdStructSI(const char* mnem, ExtMachInst machInst, OpClass __opClass,
+            IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
+            int64_t _imm, uint8_t _numregs)
+        : PredMacroOp(mnem, machInst, __opClass),
+          dest(_dest), gp(_gp), base(_base), imm(_imm), numregs(_numregs)
+    {
+        numMicroops = numregs * 2;
+
+        microOps = new StaticInstPtr[numMicroops];
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i] = new MicroopLdMemType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _gp, _base, _imm, _numregs, i);
+        }
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i + numregs] = new MicroopDeIntrlvType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>((_dest + i) % 32),
+                    _numregs, i, this);
+        }
+
+        microOps[0]->setFirstMicroop();
+        microOps[numMicroops - 1]->setLastMicroop();
+
+        for (StaticInstPtr *uop = microOps; !(*uop)->isLastMicroop(); uop++) {
+            (*uop)->setDelayedCommit();
+        }
+    }
+
+    Fault
+    execute(ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("Execute method called when it shouldn't!");
+        return NoFault;
+    }
+
+    std::string
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
+    {
+        std::stringstream ss;
+        printMnemonic(ss, "", false);
+        ccprintf(ss, "{");
+        for (int i = 0; i < numregs; ++i) {
+            printVecReg(ss, (dest + i) % 32, true);
+            if (i < numregs - 1)
+                ccprintf(ss, ", ");
+        }
+        ccprintf(ss, "}, ");
+        printVecPredReg(ss, gp);
+        ccprintf(ss, "/z, [");
+        printIntReg(ss, base);
+        if (imm != 0) {
+            ccprintf(ss, ", #%d, MUL VL", imm);
+        }
+        ccprintf(ss, "]");
+        return ss.str();
+    }
+};
+
+template <typename Element,
+         template <typename> class MicroopStMemType,
+         template <typename> class MicroopIntrlvType>
+class SveStStructSI : public PredMacroOp
+{
+  protected:
+    IntRegIndex dest;
+    IntRegIndex gp;
+    IntRegIndex base;
+    int64_t imm;
+    uint8_t numregs;
+
+  public:
+    SveStStructSI(const char* mnem, ExtMachInst machInst, OpClass __opClass,
+            IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
+            int64_t _imm, uint8_t _numregs)
+        : PredMacroOp(mnem, machInst, __opClass),
+          dest(_dest), gp(_gp), base(_base), imm(_imm), numregs(_numregs)
+    {
+        numMicroops = numregs * 2;
+
+        microOps = new StaticInstPtr[numMicroops];
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i] = new MicroopIntrlvType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _dest, _numregs, i, this);
+        }
+
+        for (int i = 0; i < numregs; ++i) {
+            microOps[i + numregs] = new MicroopStMemType<Element>(
+                    mnem, machInst, static_cast<IntRegIndex>(INTRLVREG0 + i),
+                    _gp, _base, _imm, _numregs, i);
+        }
+
+        microOps[0]->setFirstMicroop();
+        microOps[numMicroops - 1]->setLastMicroop();
+
+        for (StaticInstPtr *uop = microOps; !(*uop)->isLastMicroop(); uop++) {
+            (*uop)->setDelayedCommit();
+        }
+    }
+
+    Fault
+    execute(ExecContext *, Trace::InstRecord *) const override
+    {
+        panic("Execute method called when it shouldn't!");
+        return NoFault;
+    }
+
+    std::string
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
+    {
+        std::stringstream ss;
+        printMnemonic(ss, "", false);
+        ccprintf(ss, "{");
+        for (int i = 0; i < numregs; ++i) {
+            printVecReg(ss, (dest + i) % 32, true);
+            if (i < numregs - 1)
+                ccprintf(ss, ", ");
+        }
+        ccprintf(ss, "}, ");
+        printVecPredReg(ss, gp);
+        ccprintf(ss, ", [");
+        printIntReg(ss, base);
+        if (imm != 0) {
+            ccprintf(ss, ", #%d, MUL VL", imm);
+        }
+        ccprintf(ss, "]");
+        return ss.str();
+    }
+};
+
 template <typename RegElemType, typename MemElemType,
-          template <typename, typename> class MicroopType>
+          template <typename, typename> class MicroopType,
+          template <typename> class FirstFaultWritebackMicroopType>
 class SveIndexedMemVI : public PredMacroOp
 {
   protected:
@@ -58,17 +350,22 @@ class SveIndexedMemVI : public PredMacroOp
   public:
     SveIndexedMemVI(const char *mnem, ExtMachInst machInst, OpClass __opClass,
                     IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
-                    uint64_t _imm)
+                    uint64_t _imm, bool firstFault)
         : PredMacroOp(mnem, machInst, __opClass),
           dest(_dest), gp(_gp), base(_base), imm(_imm)
     {
         bool isLoad = (__opClass == MemReadOp);
+        assert(!firstFault || isLoad);
 
         int num_elems = ((machInst.sveLen + 1) * 16) / sizeof(RegElemType);
 
         numMicroops = num_elems;
         if (isLoad) {
-            numMicroops++;
+            if (firstFault) {
+                numMicroops += 2;
+            } else {
+                numMicroops++;
+            }
         }
 
         microOps = new StaticInstPtr[numMicroops];
@@ -90,10 +387,16 @@ class SveIndexedMemVI : public PredMacroOp
             *uop = new MicroopType<RegElemType, MemElemType>(
                 mnem, machInst, __opClass, _dest, _gp,
                 isLoad ? (IntRegIndex) VECREG_UREG0 : _base, _imm, i,
-                num_elems);
+                num_elems, firstFault);
         }
 
-        --uop;
+        if (firstFault) {
+            *uop = new FirstFaultWritebackMicroopType<RegElemType>(
+                mnem, machInst, __opClass, num_elems, this);
+        } else {
+            --uop;
+        }
+
         (*uop)->setLastMicroop();
         microOps[0]->setFirstMicroop();
 
@@ -103,14 +406,15 @@ class SveIndexedMemVI : public PredMacroOp
     }
 
     Fault
-    execute(ExecContext *, Trace::InstRecord *) const
+    execute(ExecContext *, Trace::InstRecord *) const override
     {
         panic("Execute method called when it shouldn't!");
         return NoFault;
     }
 
     std::string
-    generateDisassembly(Addr pc, const SymbolTable *symtab) const
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
     {
         // TODO: add suffix to transfer and base registers
         std::stringstream ss;
@@ -130,7 +434,8 @@ class SveIndexedMemVI : public PredMacroOp
 };
 
 template <typename RegElemType, typename MemElemType,
-          template <typename, typename> class MicroopType>
+          template <typename, typename> class MicroopType,
+          template <typename> class FirstFaultWritebackMicroopType>
 class SveIndexedMemSV : public PredMacroOp
 {
   protected:
@@ -147,19 +452,25 @@ class SveIndexedMemSV : public PredMacroOp
     SveIndexedMemSV(const char *mnem, ExtMachInst machInst, OpClass __opClass,
                     IntRegIndex _dest, IntRegIndex _gp, IntRegIndex _base,
                     IntRegIndex _offset, bool _offsetIs32,
-                    bool _offsetIsSigned, bool _offsetIsScaled)
+                    bool _offsetIsSigned, bool _offsetIsScaled,
+                    bool firstFault)
         : PredMacroOp(mnem, machInst, __opClass),
           dest(_dest), gp(_gp), base(_base), offset(_offset),
           offsetIs32(_offsetIs32), offsetIsSigned(_offsetIsSigned),
           offsetIsScaled(_offsetIsScaled)
     {
         bool isLoad = (__opClass == MemReadOp);
+        assert(!firstFault || isLoad);
 
         int num_elems = ((machInst.sveLen + 1) * 16) / sizeof(RegElemType);
 
         numMicroops = num_elems;
         if (isLoad) {
-            numMicroops++;
+            if (firstFault) {
+                numMicroops += 2;
+            } else {
+                numMicroops++;
+            }
         }
 
         microOps = new StaticInstPtr[numMicroops];
@@ -181,10 +492,16 @@ class SveIndexedMemSV : public PredMacroOp
             *uop = new MicroopType<RegElemType, MemElemType>(
                 mnem, machInst, __opClass, _dest, _gp, _base,
                 isLoad ? (IntRegIndex) VECREG_UREG0 : _offset, _offsetIs32,
-                _offsetIsSigned, _offsetIsScaled, i, num_elems);
+                _offsetIsSigned, _offsetIsScaled, i, num_elems, firstFault);
         }
 
-        --uop;
+        if (firstFault) {
+            *uop = new FirstFaultWritebackMicroopType<RegElemType>(
+                mnem, machInst, __opClass, num_elems, this);
+        } else {
+            --uop;
+        }
+
         (*uop)->setLastMicroop();
         microOps[0]->setFirstMicroop();
 
@@ -194,14 +511,15 @@ class SveIndexedMemSV : public PredMacroOp
     }
 
     Fault
-    execute(ExecContext *, Trace::InstRecord *) const
+    execute(ExecContext *, Trace::InstRecord *) const override
     {
         panic("Execute method called when it shouldn't!");
         return NoFault;
     }
 
     std::string
-    generateDisassembly(Addr pc, const SymbolTable *symtab) const
+    generateDisassembly(Addr pc,
+                        const Loader::SymbolTable *symtab) const override
     {
         // TODO: add suffix to transfer and base registers
         std::stringstream ss;

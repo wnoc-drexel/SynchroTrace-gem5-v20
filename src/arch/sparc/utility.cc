@@ -24,16 +24,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Ali Saidi
  */
 
 #include "arch/sparc/utility.hh"
 
 #include "arch/sparc/faults.hh"
-#include "arch/sparc/vtophys.hh"
-#include "mem/fs_translating_port_proxy.hh"
+#include "mem/port_proxy.hh"
 
 namespace SparcISA {
 
@@ -243,23 +239,6 @@ copyRegs(ThreadContext *src, ThreadContext *dest)
 
     // Lastly copy PC/NPC
     dest->pcState(src->pcState());
-}
-
-void
-skipFunction(ThreadContext *tc)
-{
-    PCState newPC = tc->pcState();
-    newPC.set(tc->readIntReg(ReturnAddressReg));
-    tc->pcState(newPC);
-}
-
-
-void
-initCPU(ThreadContext *tc, int cpuId)
-{
-    static Fault por = std::make_shared<PowerOnReset>();
-    if (cpuId == 0)
-        por->invoke(tc);
 }
 
 } // namespace SPARC_ISA

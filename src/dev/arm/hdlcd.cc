@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Chris Emmons
- *          Andreas Sandberg
  */
 
 #include "dev/arm/hdlcd.hh"
@@ -437,7 +434,7 @@ PixelConverter
 HDLcd::pixelConverter() const
 {
     ByteOrder byte_order(
-        pixel_format.big_endian ? BigEndianByteOrder : LittleEndianByteOrder);
+        pixel_format.big_endian ? ByteOrder::big : ByteOrder::little);
 
     /* Some Linux kernels have a broken driver that swaps the red and
      * blue color select registers. */
@@ -595,9 +592,9 @@ HDLcd::setInterrupts(uint32_t ints, uint32_t mask)
     int_rawstat = ints;
 
     if (!old_ints && intStatus()) {
-        gic->sendInt(intNum);
+        interrupt->raise();
     } else if (old_ints && !intStatus()) {
-        gic->clearInt(intNum);
+        interrupt->clear();
     }
 }
 

@@ -34,8 +34,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "cpu/kvm/vm.hh"
@@ -296,6 +294,7 @@ KvmVM::KvmVM(KvmVMParams *params)
       kvm(new Kvm()), system(nullptr),
       vmFD(kvm->createVM()),
       started(false),
+      _hasKernelIRQChip(false),
       nextVCPUID(0)
 {
     maxMemorySlot = kvm->capNumMemSlots();
@@ -541,7 +540,7 @@ KvmVM::contextIdToVCpuId(ContextID ctx) const
 {
     assert(system != nullptr);
     return dynamic_cast<BaseKvmCPU*>
-        (system->getThreadContext(ctx)->getCpuPtr())->getVCpuID();
+        (system->threads[ctx]->getCpuPtr())->getVCpuID();
 }
 
 int

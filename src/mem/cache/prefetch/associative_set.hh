@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 #ifndef __CACHE_PREFETCH_ASSOCIATIVE_SET_HH__
@@ -66,10 +64,10 @@ class TaggedEntry : public ReplaceableEntry {
         valid = true;
     }
 
-    /**
-     * Sets the entry to invalid
-     */
-    void setInvalid() {
+    /** Invalidates the entry. */
+    virtual void
+    invalidate()
+    {
         valid = false;
     }
 
@@ -107,14 +105,6 @@ class TaggedEntry : public ReplaceableEntry {
     void setSecure(bool s)
     {
         secure = s;
-    }
-
-    /**
-     * Resets the entry, this is called when an entry is evicted to allocate
-     * a new one. Types inheriting this class should provide its own
-     * implementation
-     */
-    virtual void reset () {
     }
 };
 
@@ -195,6 +185,13 @@ class AssociativeSet {
      * @param entry pointer to the container entry to be inserted
      */
     void insertEntry(Addr addr, bool is_secure, Entry* entry);
+
+    /**
+     * Invalidate an entry and its respective replacement data.
+     *
+     * @param entry Entry to be invalidated.
+     */
+    void invalidate(Entry* entry);
 
     /** Iterator types */
     using const_iterator = typename std::vector<Entry>::const_iterator;

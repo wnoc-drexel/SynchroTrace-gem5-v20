@@ -25,15 +25,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Alec Roelke
  */
 
 #ifndef __ARCH_RISCV_DECODER_HH__
 #define __ARCH_RISCV_DECODER_HH__
 
 #include "arch/generic/decode_cache.hh"
+#include "arch/generic/decoder.hh"
 #include "arch/riscv/isa_traits.hh"
 #include "arch/riscv/types.hh"
 #include "base/logging.hh"
@@ -45,7 +43,7 @@ namespace RiscvISA
 {
 
 class ISA;
-class Decoder
+class Decoder : public InstDecoder
 {
   private:
     DecodeCache::InstMap<ExtMachInst> instMap;

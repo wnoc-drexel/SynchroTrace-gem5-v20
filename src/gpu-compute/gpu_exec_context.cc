@@ -29,8 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Anthony Gutierrez
  */
 
 #include "gpu-compute/gpu_exec_context.hh"
@@ -61,8 +59,8 @@ GPUExecContext::readMiscReg(int opIdx) const
 }
 
 void
-GPUExecContext::writeMiscReg(int opIdx, RegVal operandVal)
+GPUExecContext::writeMiscReg(int opIdx, RegVal val)
 {
     assert(gpuISA);
-    gpuISA->writeMiscReg(opIdx, operandVal);
+    gpuISA->writeMiscReg(opIdx, val);
 }

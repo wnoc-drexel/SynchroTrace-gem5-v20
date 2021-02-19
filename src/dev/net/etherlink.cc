@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Ron Dreslinski
  */
 
 /* @file
@@ -242,7 +239,7 @@ EtherLink::Link::unserialize(const string &base, CheckpointIn &cp)
         parent->schedule(doneEvent, event_time);
     }
 
-    size_t tx_queue_size;
+    size_t tx_queue_size = 0;
     if (optParamIn(cp, base + ".tx_queue_size", tx_queue_size)) {
         for (size_t idx = 0; idx < tx_queue_size; ++idx) {
             Tick tick;

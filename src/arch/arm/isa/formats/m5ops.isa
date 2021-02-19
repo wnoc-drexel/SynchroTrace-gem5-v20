@@ -33,8 +33,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gene Wu
 ///
 
 def format M5ops() {{
@@ -54,6 +52,7 @@ def format M5ops() {{
             case M5OP_DEPRECATED3: return new Deprecated_exit (machInst);
             case M5OP_EXIT: return new M5exit(machInst);
             case M5OP_FAIL: return new M5fail(machInst);
+            case M5OP_SUM: return new M5sum(machInst);
             case M5OP_LOAD_SYMBOL: return new Loadsymbol(machInst);
             case M5OP_INIT_PARAM: return new Initparam(machInst);
             case M5OP_RESET_STATS: return new Resetstats(machInst);

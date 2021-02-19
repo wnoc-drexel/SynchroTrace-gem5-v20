@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "cpu/simple/noncaching.hh"
@@ -54,7 +52,7 @@ NonCachingSimpleCPU::verifyMemoryMode() const
 }
 
 Tick
-NonCachingSimpleCPU::sendPacket(MasterPort &port, const PacketPtr &pkt)
+NonCachingSimpleCPU::sendPacket(RequestPort &port, const PacketPtr &pkt)
 {
     if (system->isMemAddr(pkt->getAddr())) {
         system->getPhysMem().access(pkt);

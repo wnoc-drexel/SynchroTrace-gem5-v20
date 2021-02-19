@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_MIPS_ISA_HH__
@@ -35,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "arch/generic/isa.hh"
 #include "arch/mips/registers.hh"
 #include "arch/mips/types.hh"
 #include "cpu/reg_class.hh"
@@ -49,7 +48,7 @@ class ThreadContext;
 
 namespace MipsISA
 {
-    class ISA : public SimObject
+    class ISA : public BaseISA
     {
       public:
         // The MIPS name for this file is CP0 or Coprocessor 0
@@ -75,6 +74,7 @@ namespace MipsISA
       public:
         void clear();
 
+      public:
         void configCP();
 
         unsigned getVPENum(ThreadID tid) const;
@@ -91,15 +91,14 @@ namespace MipsISA
         RegVal readMiscRegNoEffect(int misc_reg, ThreadID tid = 0) const;
 
         //template <class TC>
-        RegVal readMiscReg(int misc_reg, ThreadContext *tc, ThreadID tid = 0);
+        RegVal readMiscReg(int misc_reg, ThreadID tid = 0);
 
         RegVal filterCP0Write(int misc_reg, int reg_sel, RegVal val);
         void setRegMask(int misc_reg, RegVal val, ThreadID tid = 0);
         void setMiscRegNoEffect(int misc_reg, RegVal val, ThreadID tid=0);
 
         //template <class TC>
-        void setMiscReg(int misc_reg, RegVal val,
-                        ThreadContext *tc, ThreadID tid=0);
+        void setMiscReg(int misc_reg, RegVal val, ThreadID tid=0);
 
         //////////////////////////////////////////////////////////
         //
@@ -129,60 +128,20 @@ namespace MipsISA
         static std::string miscRegNames[NumMiscRegs];
 
       public:
-        void startup(ThreadContext *tc) {}
-
-        /// Explicitly import the otherwise hidden startup
-        using SimObject::startup;
-
         const Params *params() const;
 
         ISA(Params *p);
 
         RegId flattenRegId(const RegId& regId) const { return regId; }
 
-        int
-        flattenIntIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenFloatIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenVecIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenVecElemIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenVecPredIndex(int reg) const
-        {
-            return reg;
-        }
-
+        int flattenIntIndex(int reg) const { return reg; }
+        int flattenFloatIndex(int reg) const { return reg; }
+        int flattenVecIndex(int reg) const { return reg; }
+        int flattenVecElemIndex(int reg) const { return reg; }
+        int flattenVecPredIndex(int reg) const { return reg; }
         // dummy
-        int
-        flattenCCIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenMiscIndex(int reg) const
-        {
-            return reg;
-        }
-
+        int flattenCCIndex(int reg) const { return reg; }
+        int flattenMiscIndex(int reg) const { return reg; }
     };
 }
 

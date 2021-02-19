@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019 ARM Limited
+ * All rights reserved.
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 1999-2011 Mark D. Hill and David A. Wood
  * All rights reserved.
  *
@@ -40,9 +52,12 @@
 #include "debug/RubySystem.hh"
 #include "mem/ruby/common/Address.hh"
 #include "mem/ruby/network/Network.hh"
+#include "mem/ruby/system/DMASequencer.hh"
+#include "mem/ruby/system/Sequencer.hh"
 #include "mem/simple_mem.hh"
 #include "sim/eventq.hh"
 #include "sim/simulate.hh"
+#include "sim/system.hh"
 
 using namespace std;
 
@@ -71,7 +86,7 @@ RubySystem::RubySystem(const Params *p)
     m_abstract_controls.resize(MachineType_NUM);
 
     // Collate the statistics before they are printed.
-    Stats::registerDumpCallback(new RubyStatsCallback(this));
+    Stats::registerDumpCallback([this]() { collateStats(); });
     // Create the profiler
     m_profiler = new Profiler(p, this);
     m_phys_mem = p->phys_mem;
@@ -80,7 +95,7 @@ RubySystem::RubySystem(const Params *p)
 void
 RubySystem::registerNetwork(Network* network_ptr)
 {
-    m_network = network_ptr;
+    m_networks.emplace_back(network_ptr);
 }
 
 void
@@ -92,9 +107,63 @@ RubySystem::registerAbstractController(AbstractController* cntrl)
     m_abstract_controls[id.getType()][id.getNum()] = cntrl;
 }
 
+void
+RubySystem::registerMachineID(const MachineID& mach_id, Network* network)
+{
+    int network_id = -1;
+    for (int idx = 0; idx < m_networks.size(); ++idx) {
+        if (m_networks[idx].get() == network) {
+            network_id = idx;
+        }
+    }
+
+    fatal_if(network_id < 0, "Could not add MachineID %s. Network not found",
+             MachineIDToString(mach_id).c_str());
+
+    machineToNetwork.insert(std::make_pair(mach_id, network_id));
+}
+
+// This registers all requestor IDs in the system for functional reads. This
+// should be called in init() since requestor IDs are obtained in a SimObject's
+// constructor and there are functional reads/writes between init() and
+// startup().
+void
+RubySystem::registerRequestorIDs()
+{
+    // Create the map for RequestorID to network node. This is done in init()
+    // because all RequestorIDs must be obtained in the constructor and
+    // AbstractControllers are registered in their constructor. This is done
+    // in two steps: (1) Add all of the AbstractControllers. Since we don't
+    // have a mapping of RequestorID to MachineID this is the easiest way to
+    // filter out AbstractControllers from non-Ruby requestors. (2) Go through
+    // the system's list of RequestorIDs and add missing RequestorIDs to
+    // network 0 (the default).
+    for (auto& cntrl : m_abs_cntrl_vec) {
+        RequestorID id = cntrl->getRequestorId();
+        MachineID mach_id = cntrl->getMachineID();
+
+        // These are setup in Network constructor and should exist
+        fatal_if(!machineToNetwork.count(mach_id),
+                 "No machineID %s. Does not belong to a Ruby network?",
+                 MachineIDToString(mach_id).c_str());
+
+        auto network_id = machineToNetwork[mach_id];
+        requestorToNetwork.insert(std::make_pair(id, network_id));
+
+        // Create helper vectors for each network to iterate over.
+        netCntrls[network_id].push_back(cntrl);
+    }
+
+    // Default all other requestor IDs to network 0
+    for (auto id = 0; id < params()->system->maxRequestors(); ++id) {
+        if (!requestorToNetwork.count(id)) {
+            requestorToNetwork.insert(std::make_pair(id, 0));
+        }
+    }
+}
+
 RubySystem::~RubySystem()
 {
-    delete m_network;
     delete m_profiler;
 }
 
@@ -317,7 +386,7 @@ RubySystem::unserialize(CheckpointIn &cp)
 
     UNSERIALIZE_SCALAR(cache_trace_file);
     UNSERIALIZE_SCALAR(cache_trace_size);
-    cache_trace_file = cp.cptDir + "/" + cache_trace_file;
+    cache_trace_file = cp.getCptDir() + "/" + cache_trace_file;
 
     readCompressedTrace(cache_trace_file, uncompressed_trace,
                         cache_trace_size);
@@ -326,6 +395,12 @@ RubySystem::unserialize(CheckpointIn &cp)
 
     // Create the cache recorder that will hang around until startup.
     makeCacheRecorder(uncompressed_trace, cache_trace_size, block_size_bytes);
+}
+
+void
+RubySystem::init()
+{
+    registerRequestorIDs();
 }
 
 void
@@ -393,6 +468,9 @@ void
 RubySystem::resetStats()
 {
     m_start_cycle = curCycle();
+    for (auto& network : m_networks) {
+        network->resetStats();
+    }
 }
 
 bool
@@ -402,37 +480,54 @@ RubySystem::functionalRead(PacketPtr pkt)
     Addr line_address = makeLineAddress(address);
 
     AccessPermission access_perm = AccessPermission_NotPresent;
-    int num_controllers = m_abs_cntrl_vec.size();
 
     DPRINTF(RubySystem, "Functional Read request for %#x\n", address);
 
     unsigned int num_ro = 0;
     unsigned int num_rw = 0;
     unsigned int num_busy = 0;
+    unsigned int num_maybe_stale = 0;
     unsigned int num_backing_store = 0;
     unsigned int num_invalid = 0;
 
+    // Only send functional requests within the same network.
+    assert(requestorToNetwork.count(pkt->requestorId()));
+    int request_net_id = requestorToNetwork[pkt->requestorId()];
+    assert(netCntrls.count(request_net_id));
+
+    AbstractController *ctrl_ro = nullptr;
+    AbstractController *ctrl_rw = nullptr;
+    AbstractController *ctrl_backing_store = nullptr;
+
     // In this loop we count the number of controllers that have the given
     // address in read only, read write and busy states.
-    for (unsigned int i = 0; i < num_controllers; ++i) {
-        access_perm = m_abs_cntrl_vec[i]-> getAccessPermission(line_address);
-        if (access_perm == AccessPermission_Read_Only)
+    for (auto& cntrl : netCntrls[request_net_id]) {
+        access_perm = cntrl-> getAccessPermission(line_address);
+        if (access_perm == AccessPermission_Read_Only){
             num_ro++;
-        else if (access_perm == AccessPermission_Read_Write)
+            if (ctrl_ro == nullptr) ctrl_ro = cntrl;
+        }
+        else if (access_perm == AccessPermission_Read_Write){
             num_rw++;
+            if (ctrl_rw == nullptr) ctrl_rw = cntrl;
+        }
         else if (access_perm == AccessPermission_Busy)
             num_busy++;
-        else if (access_perm == AccessPermission_Backing_Store)
+        else if (access_perm == AccessPermission_Maybe_Stale)
+            num_maybe_stale++;
+        else if (access_perm == AccessPermission_Backing_Store) {
             // See RubySlicc_Exports.sm for details, but Backing_Store is meant
             // to represent blocks in memory *for Broadcast/Snooping protocols*,
             // where memory has no idea whether it has an exclusive copy of data
             // or not.
             num_backing_store++;
+            if (ctrl_backing_store == nullptr)
+                ctrl_backing_store = cntrl;
+        }
         else if (access_perm == AccessPermission_Invalid ||
                  access_perm == AccessPermission_NotPresent)
             num_invalid++;
     }
-    assert(num_rw <= 1);
 
     // This if case is meant to capture what happens in a Broadcast/Snoop
     // protocol where the block does not exist in the cache hierarchy. You
@@ -442,32 +537,52 @@ RubySystem::functionalRead(PacketPtr pkt)
     // The reason is because the Backing_Store memory could easily be stale, if
     // there are copies floating around the cache hierarchy, so you want to read
     // it only if it's not in the cache hierarchy at all.
+    int num_controllers = netCntrls[request_net_id].size();
     if (num_invalid == (num_controllers - 1) && num_backing_store == 1) {
         DPRINTF(RubySystem, "only copy in Backing_Store memory, read from it\n");
-        for (unsigned int i = 0; i < num_controllers; ++i) {
-            access_perm = m_abs_cntrl_vec[i]->getAccessPermission(line_address);
-            if (access_perm == AccessPermission_Backing_Store) {
-                m_abs_cntrl_vec[i]->functionalRead(line_address, pkt);
-                return true;
-            }
+        ctrl_backing_store->functionalRead(line_address, pkt);
+        return true;
+    } else if (num_ro > 0 || num_rw >= 1) {
+        if (num_rw > 1) {
+            // We iterate over the vector of abstract controllers, and return
+            // the first copy found. If we have more than one cache with block
+            // in writable permission, the first one found would be returned.
+            warn("More than one Abstract Controller with RW permission for "
+                 "addr: %#x on cacheline: %#x.", address, line_address);
         }
-    } else if (num_ro > 0 || num_rw == 1) {
         // In Broadcast/Snoop protocols, this covers if you know the block
         // exists somewhere in the caching hierarchy, then you want to read any
         // valid RO or RW block.  In directory protocols, same thing, you want
         // to read any valid readable copy of the block.
-        DPRINTF(RubySystem, "num_busy = %d, num_ro = %d, num_rw = %d\n",
-                num_busy, num_ro, num_rw);
-        // In this loop, we try to figure which controller has a read only or
-        // a read write copy of the given address. Any valid copy would suffice
-        // for a functional read.
-        for (unsigned int i = 0;i < num_controllers;++i) {
-            access_perm = m_abs_cntrl_vec[i]->getAccessPermission(line_address);
-            if (access_perm == AccessPermission_Read_Only ||
-                access_perm == AccessPermission_Read_Write) {
-                m_abs_cntrl_vec[i]->functionalRead(line_address, pkt);
+        DPRINTF(RubySystem, "num_maybe_stale=%d, num_busy = %d, num_ro = %d, "
+                            "num_rw = %d\n",
+                num_maybe_stale, num_busy, num_ro, num_rw);
+        // Use the copy from the controller with read/write permission (if
+        // any), otherwise use get the first read only found
+        if (ctrl_rw) {
+            ctrl_rw->functionalRead(line_address, pkt);
+        } else {
+            assert(ctrl_ro);
+            ctrl_ro->functionalRead(line_address, pkt);
+        }
+        return true;
+    } else if ((num_busy + num_maybe_stale) > 0) {
+        // No controller has a valid copy of the block, but a transient or
+        // stale state indicates a valid copy should be in transit in the
+        // network or in a message buffer waiting to be handled
+        DPRINTF(RubySystem, "Controllers functionalRead lookup "
+                            "(num_maybe_stale=%d, num_busy = %d)\n",
+                num_maybe_stale, num_busy);
+        for (auto& cntrl : netCntrls[request_net_id]) {
+            if (cntrl->functionalReadBuffers(pkt))
                 return true;
-            }
+        }
+        DPRINTF(RubySystem, "Network functionalRead lookup "
+                            "(num_maybe_stale=%d, num_busy = %d)\n",
+                num_maybe_stale, num_busy);
+        for (auto& network : m_networks) {
+            if (network->functionalRead(pkt))
+                return true;
         }
     }
 
@@ -484,25 +599,41 @@ RubySystem::functionalWrite(PacketPtr pkt)
     Addr addr(pkt->getAddr());
     Addr line_addr = makeLineAddress(addr);
     AccessPermission access_perm = AccessPermission_NotPresent;
-    int num_controllers = m_abs_cntrl_vec.size();
 
     DPRINTF(RubySystem, "Functional Write request for %#x\n", addr);
 
     uint32_t M5_VAR_USED num_functional_writes = 0;
 
-    for (unsigned int i = 0; i < num_controllers;++i) {
-        num_functional_writes +=
-            m_abs_cntrl_vec[i]->functionalWriteBuffers(pkt);
+    // Only send functional requests within the same network.
+    assert(requestorToNetwork.count(pkt->requestorId()));
+    int request_net_id = requestorToNetwork[pkt->requestorId()];
+    assert(netCntrls.count(request_net_id));
 
-        access_perm = m_abs_cntrl_vec[i]->getAccessPermission(line_addr);
+    for (auto& cntrl : netCntrls[request_net_id]) {
+        num_functional_writes += cntrl->functionalWriteBuffers(pkt);
+
+        access_perm = cntrl->getAccessPermission(line_addr);
         if (access_perm != AccessPermission_Invalid &&
             access_perm != AccessPermission_NotPresent) {
             num_functional_writes +=
-                m_abs_cntrl_vec[i]->functionalWrite(line_addr, pkt);
+                cntrl->functionalWrite(line_addr, pkt);
+        }
+
+        // Also updates requests pending in any sequencer associated
+        // with the controller
+        if (cntrl->getCPUSequencer()) {
+            num_functional_writes +=
+                cntrl->getCPUSequencer()->functionalWrite(pkt);
+        }
+        if (cntrl->getDMASequencer()) {
+            num_functional_writes +=
+                cntrl->getDMASequencer()->functionalWrite(pkt);
         }
     }
 
-    num_functional_writes += m_network->functionalWrite(pkt);
+    for (auto& network : m_networks) {
+        num_functional_writes += network->functionalWrite(pkt);
+    }
     DPRINTF(RubySystem, "Messages written = %u\n", num_functional_writes);
 
     return true;

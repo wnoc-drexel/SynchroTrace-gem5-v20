@@ -37,11 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
- *          Gabe Black
- *          Andreas Sandberg
  */
 
 #include "pybind11/pybind11.h"
@@ -53,6 +48,7 @@
 
 #include "base/addr_range.hh"
 #include "base/inet.hh"
+#include "base/loader/elf_object.hh"
 #include "base/logging.hh"
 #include "base/random.hh"
 #include "base/socket.hh"
@@ -83,6 +79,7 @@ PybindSimObjectResolver::resolveSimObject(const std::string &name)
 }
 
 extern const char *compileDate;
+extern const char *gem5Version;
 
 #ifdef DEBUG
 const bool flag_DEBUG = true;
@@ -202,6 +199,14 @@ init_net(py::module &m_native)
         ;
 }
 
+static void
+init_loader(py::module &m_native)
+{
+    py::module m = m_native.def_submodule("loader");
+
+    m.def("setInterpDir", &Loader::setInterpDir);
+}
+
 void
 pybind_init_core(py::module &m_native)
 {
@@ -256,6 +261,7 @@ pybind_init_core(py::module &m_native)
 
     /* TODO: These should be read-only */
     m_core.attr("compileDate") = py::cast(compileDate);
+    m_core.attr("gem5Version") = py::cast(gem5Version);
 
     m_core.attr("flag_DEBUG") = py::cast(flag_DEBUG);
     m_core.attr("flag_DEBUG") = py::cast(flag_DEBUG);
@@ -281,5 +287,6 @@ pybind_init_core(py::module &m_native)
     init_serialize(m_native);
     init_range(m_native);
     init_net(m_native);
+    init_loader(m_native);
 }
 

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Javier Bueno
  */
 
 /**
@@ -49,7 +47,9 @@
 
 struct IndirectMemoryPrefetcherParams;
 
-class IndirectMemoryPrefetcher : public QueuedPrefetcher
+namespace Prefetcher {
+
+class IndirectMemory : public Queued
 {
     /** Maximum number of prefetches generated per event */
     const unsigned int maxPrefetchDistance;
@@ -101,7 +101,10 @@ class IndirectMemoryPrefetcher : public QueuedPrefetcher
               increasedIndirectCounter(false)
         {}
 
-        void reset() override {
+        void
+        invalidate() override
+        {
+            TaggedEntry::invalidate();
             address = 0;
             secure = false;
             streamCounter = 0;
@@ -136,16 +139,20 @@ class IndirectMemoryPrefetcher : public QueuedPrefetcher
 
         IndirectPatternDetectorEntry(unsigned int num_addresses,
                                      unsigned int num_shifts)
-          : idx1(0), idx2(0), secondIndexSet(false), numMisses(0),
+          : TaggedEntry(), idx1(0), idx2(0), secondIndexSet(false),
+            numMisses(0),
             baseAddr(num_addresses, std::vector<Addr>(num_shifts))
-        {}
+        {
+        }
 
-        void reset() override {
+        void
+        invalidate() override
+        {
+            TaggedEntry::invalidate();
             idx1 = 0;
             idx2 = 0;
             secondIndexSet = false;
             numMisses = 0;
-            setInvalid();
         }
     };
     /** Indirect Pattern Detector (IPD) table */
@@ -186,10 +193,13 @@ class IndirectMemoryPrefetcher : public QueuedPrefetcher
     void checkAccessMatchOnActiveEntries(Addr addr);
 
   public:
-    IndirectMemoryPrefetcher(const IndirectMemoryPrefetcherParams *p);
-    ~IndirectMemoryPrefetcher() {}
+    IndirectMemory(const IndirectMemoryPrefetcherParams *p);
+    ~IndirectMemory() = default;
 
     void calculatePrefetch(const PrefetchInfo &pfi,
                            std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
+
 #endif//__MEM_CACHE_PREFETCH_INDIRECT_MEMORY_HH__

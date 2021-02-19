@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #include "dev/arm/smmu_v3_transl.hh"
@@ -76,6 +74,33 @@ SMMUTranslRequest::prefetch(Addr addr, uint32_t sid, uint32_t ssid)
     req.pkt          = NULL;
 
     return req;
+}
+
+SMMUTranslationProcess::SMMUTranslationProcess(const std::string &name,
+    SMMUv3 &_smmu, SMMUv3DeviceInterface &_ifc)
+  :
+    SMMUProcess(name, _smmu),
+    ifc(_ifc)
+{
+    // Decrease number of pending translation slots on the device interface
+    assert(ifc.xlateSlotsRemaining > 0);
+    ifc.xlateSlotsRemaining--;
+
+    ifc.pendingMemAccesses++;
+    reinit();
+}
+
+SMMUTranslationProcess::~SMMUTranslationProcess()
+{
+    // Increase number of pending translation slots on the device interface
+    assert(ifc.pendingMemAccesses > 0);
+    ifc.pendingMemAccesses--;
+
+    // If no more SMMU memory accesses are pending,
+    // signal SMMU Device Interface as drained
+    if (ifc.pendingMemAccesses == 0) {
+        ifc.signalDrainDone();
+    }
 }
 
 void
@@ -122,18 +147,17 @@ SMMUTranslationProcess::main(Yield &yield)
                 request.addr, request.size);
 
 
-    unsigned numSlaveBeats = request.isWrite ?
+    unsigned numResponderBeats = request.isWrite ?
         (request.size + (ifc.portWidth - 1)) / ifc.portWidth : 1;
 
-    doSemaphoreDown(yield, ifc.slavePortSem);
-    doDelay(yield, Cycles(numSlaveBeats));
-    doSemaphoreUp(ifc.slavePortSem);
+    doSemaphoreDown(yield, ifc.devicePortSem);
+    doDelay(yield, Cycles(numResponderBeats));
+    doSemaphoreUp(ifc.devicePortSem);
 
 
     recvTick = curTick();
 
-
-    if (!(smmu.regs.cr0 & 0x1)) {
+    if (!(smmu.regs.cr0 & CR0_SMMUEN_MASK)) {
         // SMMU disabled
         doDelay(yield, Cycles(1));
         completeTransaction(yield, bypass(request.addr));
@@ -200,7 +224,10 @@ SMMUTranslationProcess::main(Yield &yield)
         hazardIdRelease();
 
         if (tr.fault != FAULT_NONE)
-            panic("fault\n");
+            panic("Translation Fault (addr=%#x, size=%#x, sid=%d, ssid=%d, "
+                    "isWrite=%d, isPrefetch=%d, isAtsRequest=%d)\n",
+                    request.addr, request.size, request.sid, request.ssid,
+                    request.isWrite, request.isPrefetch, request.isAtsRequest);
 
         completeTransaction(yield, tr);
     }
@@ -234,7 +261,7 @@ SMMUTranslationProcess::smmuTranslation(Yield &yield)
 
     bool haveConfig = true;
     if (!configCacheLookup(yield, context)) {
-        if(findConfig(yield, context, tr)) {
+        if (findConfig(yield, context, tr)) {
             configCacheUpdate(yield, context);
         } else {
             haveConfig = false;
@@ -268,7 +295,7 @@ SMMUTranslationProcess::smmuTranslation(Yield &yield)
             smmuTLBUpdate(yield, tr);
     }
 
-    // Simulate pipelined SMMU->SLAVE INTERFACE link
+    // Simulate pipelined SMMU->RESPONSE INTERFACE link
     doSemaphoreDown(yield, smmu.smmuIfcSem);
     doDelay(yield, Cycles(1)); // serialize transactions
     doSemaphoreUp(smmu.smmuIfcSem);
@@ -326,14 +353,14 @@ SMMUTranslationProcess::ifcTLBLookup(Yield &yield, TranslResult &tr,
 
     if (!e) {
         DPRINTF(SMMUv3,
-                "SLAVE Interface TLB miss vaddr=%#x sid=%#x ssid=%#x\n",
+                "RESPONSE Interface TLB miss vaddr=%#x sid=%#x ssid=%#x\n",
                 request.addr, request.sid, request.ssid);
 
         return false;
     }
 
     DPRINTF(SMMUv3,
-            "SLAVE Interface TLB hit vaddr=%#x amask=%#x sid=%#x ssid=%#x "
+            "RESPONSE Interface TLB hit vaddr=%#x amask=%#x sid=%#x ssid=%#x "
             "paddr=%#x\n", request.addr, e->vaMask, request.sid,
             request.ssid, e->pa);
 
@@ -438,7 +465,7 @@ SMMUTranslationProcess::ifcTLBUpdate(Yield &yield,
     doSemaphoreDown(yield, ifc.mainTLBSem);
 
     DPRINTF(SMMUv3,
-            "SLAVE Interface upd vaddr=%#x amask=%#x paddr=%#x sid=%#x "
+            "RESPONSE Interface upd vaddr=%#x amask=%#x paddr=%#x sid=%#x "
             "ssid=%#x\n", e.va, e.vaMask, e.pa, e.sid, e.ssid);
 
     ifc.mainTLB->store(e, alloc);
@@ -509,6 +536,9 @@ SMMUTranslationProcess::configCacheLookup(Yield &yield, TranslContext &tc)
     tc.stage1TranslGranule = e->stage1_tg;
     tc.stage2TranslGranule = e->stage2_tg;
 
+    tc.t0sz = e->t0sz;
+    tc.s2t0sz = e->s2t0sz;
+
     return true;
 }
 
@@ -532,6 +562,8 @@ SMMUTranslationProcess::configCacheUpdate(Yield &yield,
     e.vmid = tc.vmid;
     e.stage1_tg = tc.stage1TranslGranule;
     e.stage2_tg = tc.stage2TranslGranule;
+    e.t0sz = tc.t0sz;
+    e.s2t0sz = tc.s2t0sz;
 
     doSemaphoreDown(yield, smmu.configSem);
 
@@ -582,10 +614,12 @@ SMMUTranslationProcess::findConfig(Yield &yield,
         tc.httb = ste.dw3.s2ttb << STE_S2TTB_SHIFT;
         tc.vmid = ste.dw2.s2vmid;
         tc.stage2TranslGranule = ste.dw2.s2tg;
+        tc.s2t0sz = ste.dw2.s2t0sz;
     } else {
         tc.httb = 0xdeadbeef;
         tc.vmid = 0;
         tc.stage2TranslGranule = TRANS_GRANULE_INVALID;
+        tc.s2t0sz = 0;
     }
 
 
@@ -598,11 +632,13 @@ SMMUTranslationProcess::findConfig(Yield &yield,
         tc.ttb1 = cd.dw2.ttb1 << CD_TTB_SHIFT;
         tc.asid = cd.dw0.asid;
         tc.stage1TranslGranule = cd.dw0.tg0;
+        tc.t0sz = cd.dw0.t0sz;
     } else {
         tc.ttb0 = 0xcafebabe;
         tc.ttb1 = 0xcafed00d;
         tc.asid = 0;
         tc.stage1TranslGranule = TRANS_GRANULE_INVALID;
+        tc.t0sz = 0;
     }
 
     return true;
@@ -768,7 +804,7 @@ SMMUTranslationProcess::walkStage1And2(Yield &yield, Addr addr,
         tr = combineTranslations(tr, s2tr);
     }
 
-    walkCacheUpdate(yield, addr, tr.addrMask, tr.addr,
+    walkCacheUpdate(yield, addr, tr.addrMask, walkPtr,
                     1, level, true, tr.writable);
 
     return tr;
@@ -852,7 +888,7 @@ SMMUTranslationProcess::translateStage1And2(Yield &yield, Addr addr)
     // Level here is actually (level+1) so we can count down
     // to 0 using unsigned int.
     for (level = pt_ops->lastLevel() + 1;
-        level > pt_ops->firstLevel();
+        level > pt_ops->firstLevel(context.t0sz);
         level--)
     {
         walkCacheLookup(yield, walk_ep, addr,
@@ -885,7 +921,8 @@ SMMUTranslationProcess::translateStage1And2(Yield &yield, Addr addr)
             table_addr = s2tr.addr;
         }
 
-        tr = walkStage1And2(yield, addr, pt_ops, pt_ops->firstLevel(),
+        tr = walkStage1And2(yield, addr, pt_ops,
+                            pt_ops->firstLevel(context.t0sz),
                             table_addr);
     }
 
@@ -926,13 +963,13 @@ SMMUTranslationProcess::translateStage2(Yield &yield, Addr addr, bool final_tr)
     }
 
     const WalkCache::Entry *walk_ep = NULL;
-    unsigned level = pt_ops->firstLevel();
+    unsigned level = pt_ops->firstLevel(context.s2t0sz);
 
     if (final_tr || smmu.walkCacheNonfinalEnable) {
         // Level here is actually (level+1) so we can count down
         // to 0 using unsigned int.
         for (level = pt_ops->lastLevel() + 1;
-            level > pt_ops->firstLevel();
+            level > pt_ops->firstLevel(context.s2t0sz);
             level--)
         {
             walkCacheLookup(yield, walk_ep, addr,
@@ -958,7 +995,8 @@ SMMUTranslationProcess::translateStage2(Yield &yield, Addr addr, bool final_tr)
                             level + 1, walk_ep->pa);
         }
     } else {
-        tr = walkStage2(yield, addr, final_tr, pt_ops, pt_ops->firstLevel(),
+        tr = walkStage2(yield, addr, final_tr, pt_ops,
+                        pt_ops->firstLevel(context.s2t0sz),
                         context.httb);
     }
 
@@ -1173,8 +1211,6 @@ SMMUTranslationProcess::issuePrefetch(Addr addr)
     if (!ifc.prefetchEnable || ifc.xlateSlotsRemaining == 0)
         return;
 
-    ifc.xlateSlotsRemaining--;
-
     std::string proc_name = csprintf("%sprf", name());
     SMMUTranslationProcess *proc =
         new SMMUTranslationProcess(proc_name, smmu, ifc);
@@ -1190,14 +1226,14 @@ SMMUTranslationProcess::completeTransaction(Yield &yield,
 {
     assert(tr.fault == FAULT_NONE);
 
-    unsigned numMasterBeats = request.isWrite ?
-        (request.size + (smmu.masterPortWidth-1))
-            / smmu.masterPortWidth :
+    unsigned numRequestorBeats = request.isWrite ?
+        (request.size + (smmu.requestPortWidth-1))
+            / smmu.requestPortWidth :
         1;
 
-    doSemaphoreDown(yield, smmu.masterPortSem);
-    doDelay(yield, Cycles(numMasterBeats));
-    doSemaphoreUp(smmu.masterPortSem);
+    doSemaphoreDown(yield, smmu.requestPortSem);
+    doDelay(yield, Cycles(numRequestorBeats));
+    doSemaphoreUp(smmu.requestPortSem);
 
 
     smmu.translationTimeDist.sample(curTick() - recvTick);
@@ -1206,7 +1242,7 @@ SMMUTranslationProcess::completeTransaction(Yield &yield,
         ifc.wrBufSlotsRemaining +=
             (request.size + (ifc.portWidth-1)) / ifc.portWidth;
 
-    smmu.scheduleSlaveRetries();
+    smmu.scheduleDeviceRetries();
 
 
     SMMUAction a;
@@ -1262,8 +1298,7 @@ SMMUTranslationProcess::completePrefetch(Yield &yield)
 void
 SMMUTranslationProcess::sendEvent(Yield &yield, const SMMUEvent &ev)
 {
-    int sizeMask = mask(smmu.regs.eventq_base & Q_BASE_SIZE_MASK) &
-            Q_CONS_PROD_MASK;
+    int sizeMask = mask(smmu.regs.eventq_base & Q_BASE_SIZE_MASK);
 
     if (((smmu.regs.eventq_prod+1) & sizeMask) ==
             (smmu.regs.eventq_cons & sizeMask))
@@ -1363,7 +1398,7 @@ SMMUTranslationProcess::doReadCD(Yield &yield,
                                  const StreamTableEntry &ste,
                                  uint32_t sid, uint32_t ssid)
 {
-    Addr cd_addr;
+    Addr cd_addr = 0;
 
     if (ste.dw0.s1cdmax == 0) {
         cd_addr = ste.dw0.s1ctxptr << ST_CD_ADDR_SHIFT;

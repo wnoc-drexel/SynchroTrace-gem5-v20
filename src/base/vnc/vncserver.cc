@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          William Wang
  */
 
 /** @file
@@ -78,7 +75,7 @@ const PixelConverter VncServer::pixelConverter(
     4,        // 4 bytes / pixel
     16, 8, 0, // R in [23, 16], G in [15, 8], B in [7, 0]
     8, 8, 8,  // 8 bits / channel
-    LittleEndianByteOrder);
+    ByteOrder::little);
 
 /** @file
  * Implementiation of a VNC server
@@ -133,7 +130,7 @@ VncServer::VncServer(const Params *p)
     // around for telling the client and making sure it cooperates
     pixelFormat.bpp = 8 * pixelConverter.length;
     pixelFormat.depth = pixelConverter.depth;
-    pixelFormat.bigendian = pixelConverter.byte_order == BigEndianByteOrder;
+    pixelFormat.bigendian = pixelConverter.byte_order == ByteOrder::big;
     pixelFormat.truecolor = 1;
     pixelFormat.redmax = pixelConverter.ch_r.mask;
     pixelFormat.greenmax = pixelConverter.ch_g.mask;

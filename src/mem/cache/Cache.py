@@ -35,9 +35,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
-#          Andreas Hansson
 
 from m5.params import *
 from m5.proxy import *
@@ -110,8 +107,8 @@ class BaseCache(ClockedObject):
     sequential_access = Param.Bool(False,
         "Whether to access tags and data sequentially")
 
-    cpu_side = SlavePort("Upstream port closer to the CPU and/or device")
-    mem_side = MasterPort("Downstream port closer to memory")
+    cpu_side = ResponsePort("Upstream port closer to the CPU and/or device")
+    mem_side = RequestPort("Downstream port closer to memory")
 
     addr_ranges = VectorParam.AddrRange([AllMemory],
          "Address range for the CPU-side port (to allow striping)")

@@ -26,10 +26,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Korey Sewell
- *          Stephen Hines
- *          Timothy M. Jones
  */
 
 #include "arch/power/utility.hh"
@@ -65,18 +61,5 @@ getArgument(ThreadContext *tc, int &number, uint16_t size, bool fp)
     panic("getArgument not implemented for POWER.\n");
     return 0;
 }
-
-void
-skipFunction(ThreadContext *tc)
-{
-    panic("Not Implemented for POWER");
-}
-
-void
-initCPU(ThreadContext *tc, int cpuId)
-{
-    panic("initCPU not implemented for POWER.\n");
-}
-
 
 } // namespace PowerISA

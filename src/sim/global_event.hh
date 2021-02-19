@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __SIM_GLOBAL_EVENT_HH__
@@ -36,7 +34,7 @@
 #include <vector>
 
 #include "base/barrier.hh"
-#include "sim/eventq_impl.hh"
+#include "sim/eventq.hh"
 
 /**
  * @file sim/global_event.hh

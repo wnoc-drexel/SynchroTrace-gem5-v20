@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "dev/serial/simple.hh"
@@ -45,9 +43,7 @@
 #include "sim/sim_exit.hh"
 
 SimpleUart::SimpleUart(const SimpleUartParams *p)
-    : Uart(p, p->pio_size),
-      byteOrder(p->big_endian ? BigEndianByteOrder : LittleEndianByteOrder),
-      endOnEOT(p->end_on_eot)
+    : Uart(p, p->pio_size), byteOrder(p->byte_order), endOnEOT(p->end_on_eot)
 {
 }
 

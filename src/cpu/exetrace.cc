@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited
+ * Copyright (c) 2017, 2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,18 +36,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Lisa Hsu
- *          Nathan Binkert
- *          Steve Raasch
  */
 
 #include "cpu/exetrace.hh"
 
 #include <iomanip>
+#include <sstream>
 
-#include "arch/isa_traits.hh"
 #include "arch/utility.hh"
 #include "base/loader/symtab.hh"
 #include "config/the_isa.hh"
@@ -55,6 +50,7 @@
 #include "cpu/static_inst.hh"
 #include "cpu/thread_context.hh"
 #include "debug/ExecAll.hh"
+#include "debug/FmtTicksOff.hh"
 #include "enums/OpClass.hh"
 
 using namespace std;
@@ -63,15 +59,9 @@ using namespace TheISA;
 namespace Trace {
 
 void
-ExeTracerRecord::dumpTicks(ostream &outs)
-{
-    ccprintf(outs, "%7d: ", when);
-}
-
-void
 Trace::ExeTracerRecord::traceInst(const StaticInstPtr &inst, bool ran)
 {
-    ostream &outs = Trace::output();
+    std::stringstream outs;
 
     if (!Debug::ExecUser || !Debug::ExecKernel) {
         bool in_user_mode = TheISA::inUserMode(thread);
@@ -79,44 +69,40 @@ Trace::ExeTracerRecord::traceInst(const StaticInstPtr &inst, bool ran)
         if (!in_user_mode && !Debug::ExecKernel) return;
     }
 
-    if (Debug::ExecTicks)
-        dumpTicks(outs);
-
-    outs << thread->getCpuPtr()->name() << " ";
-
     if (Debug::ExecAsid)
         outs << "A" << dec << TheISA::getExecutingAsid(thread) << " ";
 
     if (Debug::ExecThread)
         outs << "T" << thread->threadId() << " : ";
 
-    std::string sym_str;
-    Addr sym_addr;
     Addr cur_pc = pc.instAddr();
-    if (debugSymbolTable && Debug::ExecSymbol &&
-            (!FullSystem || !inUserMode(thread)) &&
-            debugSymbolTable->findNearestSymbol(cur_pc, sym_str, sym_addr)) {
-        if (cur_pc != sym_addr)
-            sym_str += csprintf("+%d",cur_pc - sym_addr);
-        outs << "@" << sym_str;
+    Loader::SymbolTable::const_iterator it;
+    if (Debug::ExecSymbol && (!FullSystem || !inUserMode(thread)) &&
+            (it = Loader::debugSymbolTable.findNearest(cur_pc)) !=
+                Loader::debugSymbolTable.end()) {
+        Addr delta = cur_pc - it->address;
+        if (delta)
+            ccprintf(outs, "@%s+%d", it->name, delta);
+        else
+            ccprintf(outs, "@%s", it->name);
     } else {
-        outs << "0x" << hex << cur_pc;
+        ccprintf(outs, "%#x", cur_pc);
     }
 
     if (inst->isMicroop()) {
-        outs << "." << setw(2) << dec << pc.microPC();
+        ccprintf(outs, ".%2d", pc.microPC());
     } else {
-        outs << "   ";
+        ccprintf(outs, "   ");
     }
 
-    outs << " : ";
+    ccprintf(outs, " : ");
 
     //
     //  Print decoded instruction
     //
 
     outs << setw(26) << left;
-    outs << inst->disassemble(cur_pc, debugSymbolTable);
+    outs << inst->disassemble(cur_pc, &Loader::debugSymbolTable);
 
     if (ran) {
         outs << " : ";
@@ -184,6 +170,10 @@ Trace::ExeTracerRecord::traceInst(const StaticInstPtr &inst, bool ran)
     //  End of line...
     //
     outs << endl;
+
+    Trace::getDebugLogger()->dprintf_flag(
+        when, thread->getCpuPtr()->name(), "ExecEnable", "%s",
+        outs.str().c_str());
 }
 
 void

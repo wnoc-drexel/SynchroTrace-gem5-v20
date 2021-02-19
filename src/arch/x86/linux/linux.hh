@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_LINUX_LINUX_HH__
@@ -42,10 +40,14 @@
 
 #include "arch/x86/utility.hh"
 #include "kern/linux/linux.hh"
+#include "sim/guest_abi.hh"
+#include "sim/syscall_return.hh"
 
 class X86Linux : public Linux
 {
   public:
+    static const ByteOrder byteOrder = ByteOrder::little;
+
     static void
     archClone(uint64_t flags,
                           Process *pp, Process *cp,
@@ -62,6 +64,28 @@ class X86Linux : public Linux
         if (stack)
             ctc->setIntReg(X86ISA::StackPointerReg, stack);
     }
+
+    class SyscallABI {};
+};
+
+namespace GuestABI
+{
+
+template <typename ABI>
+struct Result<ABI, SyscallReturn,
+    typename std::enable_if<std::is_base_of<
+        X86Linux::SyscallABI, ABI>::value>::type>
+{
+    static void
+    store(ThreadContext *tc, const SyscallReturn &ret)
+    {
+        if (ret.suppressed() || ret.needsRetry())
+            return;
+
+        tc->setIntReg(X86ISA::INTREG_RAX, ret.encodedValue());
+    }
+};
+
 };
 
 class X86Linux64 : public X86Linux
@@ -165,6 +189,14 @@ class X86Linux64 : public X86Linux
     static const int TGT_O_PATH         = 010000000;
 
     static const int NUM_OPEN_FLAGS;
+
+    //@{
+    /// Basic X86_64 Linux types
+    typedef uint64_t size_t;
+    typedef uint64_t off_t;
+    typedef int64_t time_t;
+    typedef int64_t clock_t;
+    //@}
 
     static const unsigned TGT_MAP_SHARED        = 0x00001;
     static const unsigned TGT_MAP_PRIVATE       = 0x00002;
@@ -293,6 +325,14 @@ class X86Linux32 : public X86Linux
     static const int NUM_OPEN_FLAGS;
 
     static SyscallFlagTransTable mmapFlagTable[];
+
+    //@{
+    /// Basic X86 Linux types
+    typedef uint32_t size_t;
+    typedef uint32_t off_t;
+    typedef int32_t time_t;
+    typedef int32_t clock_t;
+    //@}
 
     static const unsigned TGT_MAP_SHARED        = 0x00001;
     static const unsigned TGT_MAP_PRIVATE       = 0x00002;

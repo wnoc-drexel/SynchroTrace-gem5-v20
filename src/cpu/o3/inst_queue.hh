@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_INST_QUEUE_HH__
@@ -241,9 +239,6 @@ class InstructionQueue
 
     /** Replays a memory instruction. It must be rescheduled first. */
     void replayMemInst(const DynInstPtr &replay_inst);
-
-    /** Completes a memory operation. */
-    void completeMemInst(const DynInstPtr &completed_inst);
 
     /**
      * Defers a memory instruction when its DTB translation incurs a hw

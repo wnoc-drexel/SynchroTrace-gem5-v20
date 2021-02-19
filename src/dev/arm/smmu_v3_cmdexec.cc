@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #include "dev/arm/smmu_v3_cmdexec.hh"
@@ -56,25 +54,34 @@ SMMUCommandExecProcess::main(Yield &yield)
         busy = true;
 
         while (true) {
-            int sizeMask =
-                mask(smmu.regs.cmdq_base & Q_BASE_SIZE_MASK) & Q_CONS_PROD_MASK;
+            // Masking depending on CMDQ_BASE.LOG2SIZE (log(number of
+            // queue entries)). Example: a value of 0b101 (32 entries)
+            // generates a 0b11111 mask.
+            int size_mask = mask(
+                smmu.regs.cmdq_base & Q_BASE_SIZE_MASK);
 
-            if ((smmu.regs.cmdq_cons & sizeMask) ==
-                    (smmu.regs.cmdq_prod & sizeMask))
+            // In this case the wrap bit is considered (+1)
+            int size_mask_wrap = mask(
+                (smmu.regs.cmdq_base & Q_BASE_SIZE_MASK) + 1);
+
+            if ((smmu.regs.cmdq_cons & size_mask_wrap) ==
+                    (smmu.regs.cmdq_prod & size_mask_wrap))
                 break; // command queue empty
 
-            Addr cmdAddr =
+            Addr cmd_addr =
                 (smmu.regs.cmdq_base & Q_BASE_ADDR_MASK) +
-                (smmu.regs.cmdq_cons & sizeMask) * sizeof(SMMUCommand);
+                (smmu.regs.cmdq_cons & size_mask) * sizeof(SMMUCommand);
 
             // This deliberately resets the error field in cmdq_cons!
-            smmu.regs.cmdq_cons = (smmu.regs.cmdq_cons + 1) & sizeMask;
+            smmu.regs.cmdq_cons = (smmu.regs.cmdq_cons + 1) & size_mask_wrap;
 
-            doRead(yield, cmdAddr, &cmd, sizeof(SMMUCommand));
+            doRead(yield, cmd_addr, &cmd, sizeof(SMMUCommand));
             smmu.processCommand(cmd);
         }
 
         busy = false;
+        // No more commands to process, signal the SMMU as drained
+        smmu.signalDrainDone();
 
         doSleep(yield);
     }

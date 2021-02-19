@@ -25,6 +25,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import print_function
+from six import add_metaclass
 
 try:
     import builtins
@@ -34,7 +35,6 @@ except ImportError:
 import inspect
 import os
 import re
-import string
 
 class lookup(object):
     def __init__(self, formatter, frame, *args, **kwargs):
@@ -112,9 +112,8 @@ class code_formatter_meta(type):
                 }
         cls.pattern = re.compile(pat, re.VERBOSE | re.DOTALL | re.MULTILINE)
 
+@add_metaclass(code_formatter_meta)
 class code_formatter(object):
-    __metaclass__ = code_formatter_meta
-
     delim = r'$'
     ident = r'[_A-z]\w*'
     pos = r'[0-9]+'
@@ -164,7 +163,7 @@ class code_formatter(object):
         f.close()
 
     def __str__(self):
-        data = string.join(self._data, '')
+        data = ''.join(self._data)
         self._data = [ data ]
         return data
 

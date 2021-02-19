@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014 ARM Limited
+ * Copyright (c) 2013-2014,2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -194,6 +192,9 @@ class MinorDynInst : public RefCounted
     /** This instruction is in the LSQ, not a functional unit */
     bool inLSQ;
 
+    /** Translation fault in case of a mem ref */
+    Fault translationFault;
+
     /** The instruction has been sent to the store buffer */
     bool inStoreBuffer;
 
@@ -233,9 +234,9 @@ class MinorDynInst : public RefCounted
         staticInst(NULL), id(id_), traceData(NULL),
         pc(TheISA::PCState(0)), fault(fault_),
         triedToPredict(false), predictedTaken(false),
-        fuIndex(0), inLSQ(false), inStoreBuffer(false),
-        canEarlyIssue(false), predicate(true), memAccPredicate(true),
-        instToWaitFor(0), extraCommitDelay(Cycles(0)),
+        fuIndex(0), inLSQ(false), translationFault(NoFault),
+        inStoreBuffer(false), canEarlyIssue(false), predicate(true),
+        memAccPredicate(true), instToWaitFor(0), extraCommitDelay(Cycles(0)),
         extraCommitDelayExpr(NULL), minimumCommitCycle(Cycles(0))
     { }
 

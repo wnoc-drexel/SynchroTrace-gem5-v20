@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_ARM_DECODER_HH__
@@ -48,15 +46,16 @@
 #include "arch/arm/miscregs.hh"
 #include "arch/arm/types.hh"
 #include "arch/generic/decode_cache.hh"
+#include "arch/generic/decoder.hh"
 #include "base/types.hh"
 #include "cpu/static_inst.hh"
-#include "enums/DecoderFlavour.hh"
+#include "enums/DecoderFlavor.hh"
 
 namespace ArmISA
 {
 
 class ISA;
-class Decoder
+class Decoder : public InstDecoder
 {
   protected:
     //The extended machine instruction being generated
@@ -78,7 +77,7 @@ class Decoder
      */
     int sveLen;
 
-    Enums::DecoderFlavour decoderFlavour;
+    Enums::DecoderFlavor decoderFlavor;
 
     /// A cache of decoded instruction objects.
     static GenericISA::BasicDecodeCache defaultCache;

@@ -33,11 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
  */
 
 /**
@@ -61,8 +56,8 @@ class IdleGen : public BaseGen
 
   public:
 
-    IdleGen(SimObject &obj, MasterID master_id, Tick _duration)
-        : BaseGen(obj, master_id, _duration)
+    IdleGen(SimObject &obj, RequestorID requestor_id, Tick _duration)
+        : BaseGen(obj, requestor_id, _duration)
     { }
 
     void enter();

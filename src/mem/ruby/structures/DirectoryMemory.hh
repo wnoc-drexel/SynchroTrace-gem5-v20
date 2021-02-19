@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited
+ * Copyright (c) 2017,2019 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -45,9 +45,9 @@
 #include <string>
 
 #include "base/addr_range.hh"
-#include "mem/protocol/DirectoryRequestType.hh"
 #include "mem/ruby/common/Address.hh"
-#include "mem/ruby/slicc_interface/AbstractEntry.hh"
+#include "mem/ruby/protocol/DirectoryRequestType.hh"
+#include "mem/ruby/slicc_interface/AbstractCacheEntry.hh"
 #include "params/RubyDirectoryMemory.hh"
 #include "sim/sim_object.hh"
 
@@ -76,8 +76,11 @@ class DirectoryMemory : public SimObject
     uint64_t getSize() { return m_size_bytes; }
 
     bool isPresent(Addr address);
-    AbstractEntry *lookup(Addr address);
-    AbstractEntry *allocate(Addr address, AbstractEntry* new_entry);
+    AbstractCacheEntry *lookup(Addr address);
+    AbstractCacheEntry *allocate(Addr address, AbstractCacheEntry* new_entry);
+
+    // Explicitly free up this address
+    void deallocate(Addr address);
 
     void print(std::ostream& out) const;
     void recordRequestType(DirectoryRequestType requestType);
@@ -89,7 +92,7 @@ class DirectoryMemory : public SimObject
 
   private:
     const std::string m_name;
-    AbstractEntry **m_entries;
+    AbstractCacheEntry **m_entries;
     // int m_size;  // # of memory module blocks this directory is
                     // responsible for
     uint64_t m_size_bytes;

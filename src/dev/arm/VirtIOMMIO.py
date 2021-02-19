@@ -34,8 +34,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andreas Sandberg
 
 from m5.SimObject import SimObject
 from m5.params import *
@@ -56,8 +54,6 @@ class MmioVirtIO(BasicPioDevice):
 
     def generateDeviceTree(self, state):
         node = self.generateBasicPioDeviceNode(state, 'virtio', self.pio_addr,
-                                               int(self.pio_size), [
-                                                   int(self.interrupt.num),
-                                               ])
+            int(self.pio_size), [ self.interrupt ])
         node.appendCompatible(["virtio,mmio"])
         yield node

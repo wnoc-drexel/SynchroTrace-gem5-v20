@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/bios/smbios.hh"
@@ -82,7 +80,7 @@ X86ISA::SMBios::SMBiosStructure::writeOut(PortProxy& proxy, Addr addr)
     uint8_t length = getLength();
     proxy.writeBlob(addr + 1, &length, 1);
 
-    uint16_t handleGuest = X86ISA::htog(handle);
+    uint16_t handleGuest = htole(handle);
     proxy.writeBlob(addr + 2, &handleGuest, 2);
 
     return length + getStringLength();
@@ -179,17 +177,17 @@ X86ISA::SMBios::BiosInformation::writeOut(PortProxy& proxy, Addr addr)
     proxy.writeBlob(addr + 0x4, &vendor, 1);
     proxy.writeBlob(addr + 0x5, &version, 1);
 
-    uint16_t startingAddrSegmentGuest = X86ISA::htog(startingAddrSegment);
+    uint16_t startingAddrSegmentGuest = htole(startingAddrSegment);
     proxy.writeBlob(addr + 0x6, &startingAddrSegmentGuest, 2);
 
     proxy.writeBlob(addr + 0x8, &releaseDate, 1);
     proxy.writeBlob(addr + 0x9, &romSize, 1);
 
-    uint64_t characteristicsGuest = X86ISA::htog(characteristics);
+    uint64_t characteristicsGuest = htole(characteristics);
     proxy.writeBlob(addr + 0xA, &characteristicsGuest, 8);
 
     uint16_t characteristicExtBytesGuest =
-        X86ISA::htog(characteristicExtBytes);
+        htole(characteristicExtBytes);
     proxy.writeBlob(addr + 0x12, &characteristicExtBytesGuest, 2);
 
     proxy.writeBlob(addr + 0x14, &majorVer, 1);
@@ -257,14 +255,14 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
     // Then the length of the structure table which we'll find later
 
     uint32_t tableAddrGuest =
-        X86ISA::htog(smbiosHeader.intermediateHeader.tableAddr);
+        htole(smbiosHeader.intermediateHeader.tableAddr);
     proxy.writeBlob(addr + 0x18, &tableAddrGuest, 4);
     for (int i = 0; i < 4; i++) {
         intChecksum += tableAddrGuest;
         tableAddrGuest >>= 8;
     }
 
-    uint16_t numStructs = X86ISA::gtoh(structures.size());
+    uint16_t numStructs = letoh(structures.size());
     proxy.writeBlob(addr + 0x1C, &numStructs, 2);
     for (int i = 0; i < 2; i++) {
         intChecksum += numStructs;
@@ -296,7 +294,7 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
      * Header
      */
 
-    maxSize = X86ISA::htog(maxSize);
+    maxSize = htole(maxSize);
     proxy.writeBlob(addr + 0x8, &maxSize, 2);
     for (int i = 0; i < 2; i++) {
         mainChecksum += maxSize;
@@ -312,7 +310,7 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
      */
 
     uint16_t tableSize = offset;
-    tableSize = X86ISA::htog(tableSize);
+    tableSize = htole(tableSize);
     proxy.writeBlob(addr + 0x16, &tableSize, 2);
     for (int i = 0; i < 2; i++) {
         intChecksum += tableSize;

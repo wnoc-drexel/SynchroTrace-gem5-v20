@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Anthony Gutierrez
- *          Mohammad Alian
  */
 
 /* @file
@@ -187,7 +184,7 @@ EtherSwitch::Interface::transmit()
     if (!sendPacket(outputFifo.front())) {
         DPRINTF(Ethernet, "output port busy...retry later\n");
         if (!txEvent.scheduled())
-            parent->schedule(txEvent, curTick() + retryTime);
+            parent->schedule(txEvent, curTick() + SimClock::Int::ns);
     } else {
         DPRINTF(Ethernet, "packet sent: len=%d\n", outputFifo.front()->length);
         outputFifo.pop();

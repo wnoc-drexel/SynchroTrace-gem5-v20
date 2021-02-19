@@ -36,16 +36,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_DYN_INST_IMPL_HH__
 #define __CPU_O3_DYN_INST_IMPL_HH__
 
-#include "base/cp_annotate.hh"
 #include "cpu/o3/dyn_inst.hh"
-#include "sim/full_system.hh"
 #include "debug/O3PipeView.hh"
 
 template <class Impl>
@@ -193,16 +189,13 @@ BaseO3DynInst<Impl>::trap(const Fault &fault)
 
 template <class Impl>
 void
-BaseO3DynInst<Impl>::syscall(int64_t callnum, Fault *fault)
+BaseO3DynInst<Impl>::syscall()
 {
-    if (FullSystem)
-        panic("Syscall emulation isn't available in FS mode.\n");
-
     // HACK: check CPU's nextPC before and after syscall. If it
     // changes, update this instruction's nextPC because the syscall
     // must have changed the nextPC.
     TheISA::PCState curPC = this->cpu->pcState(this->threadNumber);
-    this->cpu->syscall(callnum, this->threadNumber, fault);
+    this->cpu->syscall(this->threadNumber);
     TheISA::PCState newPC = this->cpu->pcState(this->threadNumber);
     if (!(curPC == newPC)) {
         this->pcState(newPC);

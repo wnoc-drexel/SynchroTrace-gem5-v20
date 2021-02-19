@@ -45,12 +45,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/interrupts.hh"
 
+#include <list>
 #include <memory>
 
 #include "arch/x86/intmessage.hh"
@@ -191,11 +190,11 @@ Tick
 X86ISA::Interrupts::read(PacketPtr pkt)
 {
     Addr offset = pkt->getAddr() - pioAddr;
-    //Make sure we're at least only accessing one register.
+    // Make sure we're at least only accessing one register.
     if ((offset & ~mask(3)) != ((offset + pkt->getSize()) & ~mask(3)))
         panic("Accessed more than one register at a time in the APIC!\n");
     ApicRegIndex reg = decodeAddr(offset);
-    uint32_t val = htog(readReg(reg));
+    uint32_t val = htole(readReg(reg));
     DPRINTF(LocalApic,
             "Reading Local APIC register %d at offset %#x as %#x.\n",
             reg, offset, val);
@@ -208,7 +207,7 @@ Tick
 X86ISA::Interrupts::write(PacketPtr pkt)
 {
     Addr offset = pkt->getAddr() - pioAddr;
-    //Make sure we're at least only accessing one register.
+    // Make sure we're at least only accessing one register.
     if ((offset & ~mask(3)) != ((offset + pkt->getSize()) & ~mask(3)))
         panic("Accessed more than one register at a time in the APIC!\n");
     ApicRegIndex reg = decodeAddr(offset);
@@ -216,8 +215,8 @@ X86ISA::Interrupts::write(PacketPtr pkt)
     pkt->writeData(((uint8_t *)&val) + (offset & mask(3)));
     DPRINTF(LocalApic,
             "Writing Local APIC register %d at offset %#x as %#x.\n",
-            reg, offset, gtoh(val));
-    setReg(reg, gtoh(val));
+            reg, offset, letoh(val));
+    setReg(reg, letoh(val));
     pkt->makeAtomicResponse();
     return pioDelay;
 }
@@ -267,20 +266,20 @@ X86ISA::Interrupts::requestInterrupt(uint8_t vector,
         }
     }
     if (FullSystem)
-        cpu->wakeup(0);
+        tc->getCpuPtr()->wakeup(0);
 }
 
 
 void
-X86ISA::Interrupts::setCPU(BaseCPU * newCPU)
+X86ISA::Interrupts::setThreadContext(ThreadContext *_tc)
 {
-    assert(newCPU);
-    if (cpu != NULL && cpu->cpuId() != newCPU->cpuId()) {
-        panic("Local APICs can't be moved between CPUs"
-                " with different IDs.\n");
-    }
-    cpu = newCPU;
-    initialApicId = cpu->cpuId();
+    assert(_tc);
+    panic_if(tc != NULL && tc->cpuId() != _tc->cpuId(),
+             "Local APICs can't be moved between CPUs with different IDs.");
+
+    BaseInterrupts::setThreadContext(_tc);
+
+    initialApicId = tc->cpuId();
     regs[APIC_ID] = (initialApicId << 24);
     pioAddr = x86LocalAPICAddress(initialApicId, 0);
 }
@@ -289,17 +288,13 @@ X86ISA::Interrupts::setCPU(BaseCPU * newCPU)
 void
 X86ISA::Interrupts::init()
 {
-    //
-    // The local apic must register its address ranges on both its pio
-    // port via the basicpiodevice(piodevice) init() function and its
-    // int port that it inherited from IntDevice.  Note IntDevice is
-    // not a SimObject itself.
-    //
-    BasicPioDevice::init();
-    IntDevice::init();
+    panic_if(!intRequestPort.isConnected(),
+            "Int port not connected to anything!");
+    panic_if(!pioPort.isConnected(),
+            "Pio port of %s not connected to anything!", name());
 
-    // the slave port has a range so inform the connected master
-    intSlavePort.sendRangeChange();
+    intResponsePort.sendRangeChange();
+    pioPort.sendRangeChange();
 }
 
 
@@ -307,7 +302,7 @@ Tick
 X86ISA::Interrupts::recvMessage(PacketPtr pkt)
 {
     Addr offset = pkt->getAddr() - x86InterruptAddress(initialApicId, 0);
-    assert(pkt->cmd == MemCmd::MessageReq);
+    assert(pkt->cmd == MemCmd::WriteReq);
     switch(offset)
     {
       case 0:
@@ -331,11 +326,9 @@ X86ISA::Interrupts::recvMessage(PacketPtr pkt)
 }
 
 
-Tick
-X86ISA::Interrupts::recvResponse(PacketPtr pkt)
+void
+X86ISA::Interrupts::completeIPI(PacketPtr pkt)
 {
-    assert(!pkt->isError());
-    assert(pkt->cmd == MemCmd::MessageResp);
     if (--pendingIPIs == 0) {
         InterruptCommandRegLow low = regs[APIC_INTERRUPT_COMMAND_LOW];
         // Record that the ICR is now idle.
@@ -343,7 +336,17 @@ X86ISA::Interrupts::recvResponse(PacketPtr pkt)
         regs[APIC_INTERRUPT_COMMAND_LOW] = low;
     }
     DPRINTF(LocalApic, "ICR is now idle.\n");
-    return 0;
+    delete pkt;
+}
+
+
+AddrRangeList
+X86ISA::Interrupts::getAddrRanges() const
+{
+    assert(tc);
+    AddrRangeList ranges;
+    ranges.push_back(RangeSize(pioAddr, PageBytes));
+    return ranges;
 }
 
 
@@ -475,8 +478,8 @@ X86ISA::Interrupts::setReg(ApicRegIndex reg, uint32_t val)
             message.destMode = low.destMode;
             message.level = low.level;
             message.trigger = low.trigger;
-            ApicList apics;
-            int numContexts = sys->numContexts();
+            std::list<int> apics;
+            int numContexts = sys->threads.size();
             switch (low.destShorthand) {
               case 0:
                 if (message.deliveryMode == DeliveryMode::LowestPriority) {
@@ -536,7 +539,11 @@ X86ISA::Interrupts::setReg(ApicRegIndex reg, uint32_t val)
                 pendingIPIs += apics.size();
             }
             regs[APIC_INTERRUPT_COMMAND_LOW] = low;
-            intMasterPort.sendMessage(apics, message, sys->isTimingMode());
+            for (auto id: apics) {
+                PacketPtr pkt = buildIntTriggerPacket(id, message);
+                intRequestPort.sendMessage(pkt, sys->isTimingMode(),
+                        [this](PacketPtr pkt) { completeIPI(pkt); });
+            }
             newVal = regs[APIC_INTERRUPT_COMMAND_LOW];
         }
         break;
@@ -586,8 +593,8 @@ X86ISA::Interrupts::setReg(ApicRegIndex reg, uint32_t val)
 }
 
 
-X86ISA::Interrupts::Interrupts(Params * p)
-    : BasicPioDevice(p, PageBytes), IntDevice(this, p->int_latency),
+X86ISA::Interrupts::Interrupts(Params *p)
+    : BaseInterrupts(p), sys(p->system), clockDomain(*p->clk_domain),
       apicTimerEvent([this]{ processApicTimerEvent(); }, name()),
       pendingSmi(false), smiVector(0),
       pendingNmi(false), nmiVector(0),
@@ -595,19 +602,23 @@ X86ISA::Interrupts::Interrupts(Params * p)
       pendingInit(false), initVector(0),
       pendingStartup(false), startupVector(0),
       startedUp(false), pendingUnmaskableInt(false),
-      pendingIPIs(0), cpu(NULL),
-      intSlavePort(name() + ".int_slave", this, this)
+      pendingIPIs(0),
+      intResponsePort(name() + ".int_responder", this, this),
+      intRequestPort(name() + ".int_requestor", this, this, p->int_latency),
+      pioPort(this), pioDelay(p->pio_latency)
 {
     memset(regs, 0, sizeof(regs));
     //Set the local apic DFR to the flat model.
     regs[APIC_DESTINATION_FORMAT] = (uint32_t)(-1);
     ISRV = 0;
     IRRV = 0;
+
+    regs[APIC_VERSION] = (5 << 16) | 0x14;
 }
 
 
 bool
-X86ISA::Interrupts::checkInterrupts(ThreadContext *tc) const
+X86ISA::Interrupts::checkInterrupts() const
 {
     RFLAGS rflags = tc->readMiscRegNoEffect(MISCREG_RFLAGS);
     if (pendingUnmaskableInt) {
@@ -637,9 +648,9 @@ X86ISA::Interrupts::checkInterruptsRaw() const
 }
 
 Fault
-X86ISA::Interrupts::getInterrupt(ThreadContext *tc)
+X86ISA::Interrupts::getInterrupt()
 {
-    assert(checkInterrupts(tc));
+    assert(checkInterrupts());
     // These are all probably fairly uncommon, so we'll make them easier to
     // check for.
     if (pendingUnmaskableInt) {
@@ -671,9 +682,9 @@ X86ISA::Interrupts::getInterrupt(ThreadContext *tc)
 }
 
 void
-X86ISA::Interrupts::updateIntrInfo(ThreadContext *tc)
+X86ISA::Interrupts::updateIntrInfo()
 {
-    assert(checkInterrupts(tc));
+    assert(checkInterrupts());
     if (pendingUnmaskableInt) {
         if (pendingSmi) {
             DPRINTF(LocalApic, "SMI sent to core.\n");

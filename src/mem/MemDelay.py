@@ -32,8 +32,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andreas Sandberg
 
 from m5.params import *
 from m5.objects.ClockedObject import ClockedObject
@@ -43,8 +41,14 @@ class MemDelay(ClockedObject):
     cxx_header = 'mem/mem_delay.hh'
     abstract = True
 
-    master = MasterPort("Master port")
-    slave = SlavePort("Slave port")
+    mem_side_port = RequestPort("This port sends requests and "
+                                            "receives responses")
+    master   = DeprecatedParam(mem_side_port,
+                                '`master` is now called `mem_side_port`')
+    cpu_side_port = ResponsePort("This port receives requests and "
+                                                "sends responses")
+    slave    = DeprecatedParam(cpu_side_port,
+                                '`slave` is now called `cpu_side_port`')
 
 class SimpleMemDelay(MemDelay):
     type = 'SimpleMemDelay'

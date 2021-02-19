@@ -34,8 +34,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_REGISTERS_HH__
@@ -59,8 +57,6 @@ const int NumMiscRegs = NUM_MISCREGS;
 const int NumIntArchRegs = NUM_INTREGS;
 const int NumIntRegs = NumIntArchRegs + NumMicroIntRegs + NumImplicitIntRegs;
 const int NumCCRegs = NUM_CCREGS;
-
-#define ISA_HAS_CC_REGS
 
 // Each 128 bit xmm register is broken into two effective 64 bit registers.
 // Add 8 for the indices that are mapped over the fp stack

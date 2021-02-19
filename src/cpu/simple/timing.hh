@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013,2015,2018 ARM Limited
+ * Copyright (c) 2012-2013,2015,2018,2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __CPU_SIMPLE_TIMING_HH__
@@ -157,12 +155,12 @@ class TimingSimpleCPU : public BaseSimpleCPU
      * scheduling of handling of incoming packets in the following
      * cycle.
      */
-    class TimingCPUPort : public MasterPort
+    class TimingCPUPort : public RequestPort
     {
       public:
 
         TimingCPUPort(const std::string& _name, TimingSimpleCPU* _cpu)
-            : MasterPort(_name, _cpu), cpu(_cpu),
+            : RequestPort(_name, _cpu), cpu(_cpu),
               retryRespEvent([this]{ sendRetryResp(); }, name())
         { }
 
@@ -264,10 +262,10 @@ class TimingSimpleCPU : public BaseSimpleCPU
   protected:
 
      /** Return a reference to the data port. */
-    MasterPort &getDataPort() override { return dcachePort; }
+    Port &getDataPort() override { return dcachePort; }
 
     /** Return a reference to the instruction port. */
-    MasterPort &getInstPort() override { return icachePort; }
+    Port &getInstPort() override { return icachePort; }
 
   public:
 
@@ -284,16 +282,16 @@ class TimingSimpleCPU : public BaseSimpleCPU
 
     Fault initiateMemRead(Addr addr, unsigned size,
             Request::Flags flags,
-            const std::vector<bool>& byteEnable =std::vector<bool>())
+            const std::vector<bool>& byte_enable =std::vector<bool>())
         override;
 
     Fault writeMem(uint8_t *data, unsigned size,
                    Addr addr, Request::Flags flags, uint64_t *res,
-                   const std::vector<bool>& byteEnable = std::vector<bool>())
+                   const std::vector<bool>& byte_enable = std::vector<bool>())
         override;
 
     Fault initiateMemAMO(Addr addr, unsigned size, Request::Flags flags,
-                         AtomicOpFunctor *amo_op) override;
+                         AtomicOpFunctorPtr amo_op) override;
 
     void fetch();
     void sendFetch(const Fault &fault,
@@ -321,6 +319,11 @@ class TimingSimpleCPU : public BaseSimpleCPU
      * @param state The DTB translation state.
      */
     void finishTranslation(WholeTranslationState *state);
+
+    /** hardware transactional memory **/
+    Fault initiateHtmCmd(Request::Flags flags) override;
+
+    void htmSendAbortSignal(HtmFailureFaultCause) override;
 
   private:
 
@@ -350,7 +353,7 @@ class TimingSimpleCPU : public BaseSimpleCPU
      *     activated it can happen.
      * </ul>
      */
-    bool isDrained() {
+    bool isCpuDrained() const {
         SimpleExecContext& t_info = *threadInfo[curThread];
         SimpleThread* thread = t_info.thread;
 

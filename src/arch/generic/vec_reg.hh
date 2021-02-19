@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Gabrielli
- *          Nathanael Premillieu
- *          Rekai Gonzalez
  */
 
 /** \file arch/generic/vec_reg.hh
@@ -154,7 +150,7 @@
 #include "base/cprintf.hh"
 #include "base/logging.hh"
 
-constexpr unsigned MaxVecRegLenInBytes = 256;
+constexpr unsigned MaxVecRegLenInBytes = 4096;
 
 template <size_t Sz>
 class VecRegContainer;
@@ -174,12 +170,16 @@ template <typename VecElem, size_t NumElems, bool Const>
 class VecRegT
 {
     /** Size of the register in bytes. */
-    static constexpr size_t SIZE = sizeof(VecElem) * NumElems;
+    static constexpr inline size_t
+    size()
+    {
+        return sizeof(VecElem) * NumElems;
+    }
   public:
     /** Container type alias. */
     using Container = typename std::conditional<Const,
-                                              const VecRegContainer<SIZE>,
-                                              VecRegContainer<SIZE>>::type;
+                                              const VecRegContainer<size()>,
+                                              VecRegContainer<size()>>::type;
   private:
     /** My type alias. */
     using MyClass = VecRegT<VecElem, NumElems, Const>;
@@ -242,7 +242,7 @@ class VecRegT
     {
         /* 0-sized is not allowed */
         os << "[" << std::hex << (uint32_t)vr[0];
-        for (uint32_t e = 1; e < vr.SIZE; e++)
+        for (uint32_t e = 1; e < vr.size(); e++)
             os << " " << std::hex << (uint32_t)vr[e];
         os << ']';
         return os;
@@ -268,22 +268,24 @@ class VecLaneT;
  * portion through the method 'as
  * @tparam Sz Size of the container in bytes.
  */
-template <size_t Sz>
+template <size_t SIZE>
 class VecRegContainer
 {
-  static_assert(Sz > 0,
+  static_assert(SIZE > 0,
           "Cannot create Vector Register Container of zero size");
-  static_assert(Sz <= MaxVecRegLenInBytes,
+  static_assert(SIZE <= MaxVecRegLenInBytes,
           "Vector Register size limit exceeded");
   public:
-    static constexpr size_t SIZE = Sz;
-    using Container = std::array<uint8_t,Sz>;
+    static constexpr inline size_t size() { return SIZE; };
+    using Container = std::array<uint8_t, SIZE>;
   private:
-    Container container;
+    // 16-byte aligned to support 128bit element view
+    alignas(16) Container container;
     using MyClass = VecRegContainer<SIZE>;
 
   public:
     VecRegContainer() {}
+    VecRegContainer(const VecRegContainer &) = default;
     /* This is required for de-serialisation. */
     VecRegContainer(const std::vector<uint8_t>& that)
     {
@@ -380,7 +382,7 @@ class VecRegContainer
      * @tparam NumElem Amount of elements in the view.
      */
     /** @{ */
-    template <typename VecElem, size_t NumElems = SIZE/sizeof(VecElem)>
+    template <typename VecElem, size_t NumElems=(SIZE / sizeof(VecElem))>
     VecRegT<VecElem, NumElems, true> as() const
     {
         static_assert(SIZE % sizeof(VecElem) == 0,
@@ -390,7 +392,7 @@ class VecRegContainer
         return VecRegT<VecElem, NumElems, true>(*this);
     }
 
-    template <typename VecElem, size_t NumElems = SIZE/sizeof(VecElem)>
+    template <typename VecElem, size_t NumElems=(SIZE / sizeof(VecElem))>
     VecRegT<VecElem, NumElems, false> as()
     {
         static_assert(SIZE % sizeof(VecElem) == 0,
@@ -523,6 +525,7 @@ class VecLaneT
     friend class VecRegContainer<32>;
     friend class VecRegContainer<64>;
     friend class VecRegContainer<128>;
+    friend class VecRegContainer<256>;
     friend class VecRegContainer<MaxVecRegLenInBytes>;
 
     /** My type alias. */
@@ -640,10 +643,10 @@ template <size_t Sz>
 inline bool
 to_number(const std::string& value, VecRegContainer<Sz>& v)
 {
-    fatal_if(value.size() > 2 * VecRegContainer<Sz>::SIZE,
+    fatal_if(value.size() > 2 * VecRegContainer<Sz>::size(),
              "Vector register value overflow at unserialize");
 
-    for (int i = 0; i < VecRegContainer<Sz>::SIZE; i++) {
+    for (int i = 0; i < VecRegContainer<Sz>::size(); i++) {
         uint8_t b = 0;
         if (2 * i < value.size())
             b = stoul(value.substr(i * 2, 2), nullptr, 16);

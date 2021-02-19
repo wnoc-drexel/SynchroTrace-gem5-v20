@@ -1,3 +1,15 @@
+# Copyright (c) 2019 ARM Limited
+# All rights reserved.
+#
+# The license below extends only to copyright in the software and shall
+# not be construed as granting a license to any other intellectual
+# property including but not limited to intellectual property relating
+# to a hardware implementation of the functionality of the software
+# licensed hereunder.  You may use the software subject to the license
+# terms below provided that you ensure that this notice is replicated
+# unmodified and in its entirety in all distributions of the software,
+# modified or unmodified, in source code or in binary form.
+#
 # Copyright (c) 2015 Advanced Micro Devices, Inc.
 # All rights reserved
 #
@@ -23,8 +35,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: David Hashe
 
 from __future__ import print_function
 
@@ -32,6 +42,7 @@ import m5
 from m5.objects import *
 from m5.util.convert import *
 
+from functools import reduce
 import operator, os, platform, getpass
 from os import mkdir, makedirs, getpid, listdir, stat, access
 from pwd import getpwuid
@@ -77,7 +88,12 @@ def config_filesystem(system, options = None):
     procdir = joinpath(fsdir, 'proc')
     mkdir(procdir)
 
-    cpus = [obj for obj in system.descendants() if isinstance(obj, BaseCPU)]
+    try:
+        cpus = \
+            [obj for obj in system.descendants() if isinstance(obj, BaseCPU)]
+    except NameError:
+        # BaseCPU is not defined for the NULL ISA
+        cpus = []
 
     cpu_clock = 0
     if hasattr(options, 'cpu_clock'):
@@ -117,7 +133,7 @@ def config_filesystem(system, options = None):
         file_append((procdir, 'cpuinfo'), one_cpu)
 
     file_append((procdir, 'stat'), 'cpu 0 0 0 0 0 0 0\n')
-    for i in xrange(len(cpus)):
+    for i in range(len(cpus)):
         file_append((procdir, 'stat'), 'cpu%d 0 0 0 0 0 0 0\n' % i)
 
     # Set up /sys
@@ -135,11 +151,19 @@ def config_filesystem(system, options = None):
     tmpdir = joinpath(fsdir, 'tmp')
     replace_tree(tmpdir)
 
-    if options and hasattr(options, 'chroot'):
-        chroot = os.path.expanduser(options.chroot)
-    else:
-        chroot = '/'
-    system.redirect_paths = _redirect_paths(chroot)
+    system.redirect_paths = _redirect_paths(options)
+
+    # Setting the interpreter path. This is used to load the
+    # guest dynamic linker itself from the elf file.
+    interp = getattr(options, 'interp_dir', None)
+    if interp:
+        from m5.core import setInterpDir
+        setInterpDir(interp)
+
+        print("Setting the interpreter path to:", interp,
+              "\nFor dynamically linked applications you might still "
+              "need to setup the --redirects so that libraries are "
+              "found\n")
 
 def register_node(cpu_list, mem, node_number):
     nodebasedir = joinpath(m5.options.outdir, 'fs', 'sys', 'devices',
@@ -196,14 +220,28 @@ def register_cache(level, idu_type, size, line_size, assoc, cpus):
         file_append((indexdir, 'physical_line_partition'), '1')
         file_append((indexdir, 'shared_cpu_map'), hex_mask(cpus))
 
-def _redirect_paths(chroot):
+def _redirect_paths(options):
     # Redirect filesystem syscalls from src to the first matching dests
     redirect_paths = [RedirectPath(app_path = "/proc",
                           host_paths = ["%s/fs/proc" % m5.options.outdir]),
                       RedirectPath(app_path = "/sys",
                           host_paths = ["%s/fs/sys"  % m5.options.outdir]),
                       RedirectPath(app_path = "/tmp",
-                          host_paths = ["%s/fs/tmp"  % m5.options.outdir]),
-                      RedirectPath(app_path = "/",
-                          host_paths = ["%s"         % chroot])]
+                          host_paths = ["%s/fs/tmp"  % m5.options.outdir])]
+
+    # Setting the redirect paths so that the guest dynamic linker
+    # can point to the proper /lib collection (e.g. to load libc)
+    redirects = getattr(options, 'redirects', [])
+    for redirect in redirects:
+        app_path, host_path = redirect.split("=")
+        redirect_paths.append(
+            RedirectPath(app_path = app_path, host_paths = [ host_path ]))
+
+    chroot = getattr(options, 'chroot', None)
+    if chroot:
+        redirect_paths.append(
+            RedirectPath(
+                app_path = "/",
+                host_paths = ["%s" % os.path.expanduser(chroot)]))
+
     return redirect_paths

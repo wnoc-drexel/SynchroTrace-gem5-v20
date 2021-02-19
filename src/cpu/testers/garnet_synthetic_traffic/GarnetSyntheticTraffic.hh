@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Tushar Krishna
  */
 
 #ifndef __CPU_GARNET_SYNTHETIC_TRAFFIC_HH__
@@ -76,14 +74,14 @@ class GarnetSyntheticTraffic : public ClockedObject
   protected:
     EventFunctionWrapper tickEvent;
 
-    class CpuPort : public MasterPort
+    class CpuPort : public RequestPort
     {
         GarnetSyntheticTraffic *tester;
 
       public:
 
         CpuPort(const std::string &_name, GarnetSyntheticTraffic *_tester)
-            : MasterPort(_name, _tester), tester(_tester)
+            : RequestPort(_name, _tester), tester(_tester)
         { }
 
       protected:
@@ -132,7 +130,7 @@ class GarnetSyntheticTraffic : public ClockedObject
 
     const Cycles responseLimit;
 
-    MasterID masterId;
+    RequestorID requestorId;
 
     void completeRequest(PacketPtr pkt);
 

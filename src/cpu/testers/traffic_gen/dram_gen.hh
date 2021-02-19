@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
+ * Copyright (c) 2012-2013, 2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,11 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
  */
 
 /**
@@ -51,6 +46,7 @@
 
 #include "base/bitfield.hh"
 #include "base/intmath.hh"
+#include "enums/AddrMap.hh"
 #include "mem/packet.hh"
 #include "random_gen.hh"
 
@@ -68,7 +64,7 @@ class DramGen : public RandomGen
      * Create a DRAM address sequence generator.
      *
      * @param obj SimObject owning this sequence generator
-     * @param master_id MasterID related to the memory requests
+     * @param requestor_id RequestorID related to the memory requests
      * @param _duration duration of this state before transitioning
      * @param start_addr Start address
      * @param end_addr End address
@@ -84,18 +80,17 @@ class DramGen : public RandomGen
      * @param nbr_of_banks_util Number of banks to utilized,
      *                          for N banks, we will use banks: 0->(N-1)
      * @param addr_mapping Address mapping to be used,
-     *                     0: RoCoRaBaCh, 1: RoRaBaCoCh/RoRaBaChCo
      *                     assumes single channel system
      */
     DramGen(SimObject &obj,
-            MasterID master_id, Tick _duration,
+            RequestorID requestor_id, Tick _duration,
             Addr start_addr, Addr end_addr,
             Addr _blocksize, Addr cacheline_size,
             Tick min_period, Tick max_period,
             uint8_t read_percent, Addr data_limit,
             unsigned int num_seq_pkts, unsigned int page_size,
             unsigned int nbr_of_banks_DRAM, unsigned int nbr_of_banks_util,
-            unsigned int addr_mapping,
+            Enums::AddrMap addr_mapping,
             unsigned int nbr_of_ranks);
 
     PacketPtr getNextPacket();
@@ -141,7 +136,7 @@ class DramGen : public RandomGen
     const unsigned int nbrOfBanksUtil;
 
     /** Address mapping to be used */
-    unsigned int addrMapping;
+    Enums::AddrMap addrMapping;
 
     /** Number of rank bits in DRAM address*/
     const unsigned int rankBits;

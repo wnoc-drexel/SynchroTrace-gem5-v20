@@ -33,11 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Dam Sunwoo
- *          Matt Horsnell
- *          Andreas Sandberg
- *          Jose Marinho
  */
 
 #include "arch/arm/pmu.hh"
@@ -499,7 +494,7 @@ PMU::CounterState::isFiltered() const
     const PMEVTYPER_t filter(this->filter);
     const SCR scr(pmu.isa->readMiscRegNoEffect(MISCREG_SCR));
     const CPSR cpsr(pmu.isa->readMiscRegNoEffect(MISCREG_CPSR));
-    const ExceptionLevel el(opModeToEL((OperatingMode)(uint8_t)cpsr.mode));
+    const ExceptionLevel el(currEL(cpsr));
     const bool secure(inSecureState(scr, cpsr));
 
     switch (el) {

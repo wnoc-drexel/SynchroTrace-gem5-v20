@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ivan Pizarro
  */
 
 /**
@@ -45,7 +43,9 @@
 
 struct BOPPrefetcherParams;
 
-class BOPPrefetcher : public QueuedPrefetcher
+namespace Prefetcher {
+
+class BOP : public Queued
 {
     private:
 
@@ -147,11 +147,13 @@ class BOPPrefetcher : public QueuedPrefetcher
 
     public:
 
-        BOPPrefetcher(const BOPPrefetcherParams *p);
-        ~BOPPrefetcher() {}
+        BOP(const BOPPrefetcherParams *p);
+        ~BOP() = default;
 
         void calculatePrefetch(const PrefetchInfo &pfi,
                                std::vector<AddrPriority> &addresses) override;
 };
+
+} // namespace Prefetcher
 
 #endif /* __MEM_CACHE_PREFETCH_BOP_HH__ */

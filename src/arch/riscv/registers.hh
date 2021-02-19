@@ -1,6 +1,8 @@
 /*
  * Copyright (c) 2013 ARM Limited
  * Copyright (c) 2014-2015 Sven Karlsson
+ * Copyright (c) 2019 Yifei Liu
+ * Copyright (c) 2020 Barkhausen Institut
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -38,10 +40,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
- *          Sven Karlsson
- *          Alec Roelke
  */
 
 #ifndef __ARCH_RISCV_REGISTERS_HH__
@@ -54,7 +52,6 @@
 #include "arch/generic/types.hh"
 #include "arch/generic/vec_pred_reg.hh"
 #include "arch/generic/vec_reg.hh"
-#include "arch/isa_traits.hh"
 #include "arch/riscv/generated/max_inst_regs.hh"
 #include "base/types.hh"
 
@@ -62,7 +59,7 @@ namespace RiscvISA {
 
 using RiscvISAInst::MaxInstSrcRegs;
 using RiscvISAInst::MaxInstDestRegs;
-const int MaxMiscDestRegs = 1;
+const int MaxMiscDestRegs = 2;
 
 // Not applicable to RISC-V
 using VecElem = ::DummyVecElem;
@@ -309,6 +306,7 @@ enum CSRIndex {
     CSR_SIDELEG = 0x103,
     CSR_SIE = 0x104,
     CSR_STVEC = 0x105,
+    CSR_SCOUNTEREN = 0x106,
     CSR_SSCRATCH = 0x140,
     CSR_SEPC = 0x141,
     CSR_SCAUSE = 0x142,
@@ -326,6 +324,7 @@ enum CSRIndex {
     CSR_MIDELEG = 0x303,
     CSR_MIE = 0x304,
     CSR_MTVEC = 0x305,
+    CSR_MCOUNTEREN = 0x306,
     CSR_MSCRATCH = 0x340,
     CSR_MEPC = 0x341,
     CSR_MCAUSE = 0x342,
@@ -478,6 +477,7 @@ const std::map<int, CSRMetadata> CSRData = {
     {CSR_SIDELEG, {"sideleg", MISCREG_SIDELEG}},
     {CSR_SIE, {"sie", MISCREG_IE}},
     {CSR_STVEC, {"stvec", MISCREG_STVEC}},
+    {CSR_SCOUNTEREN, {"scounteren", MISCREG_SCOUNTEREN}},
     {CSR_SSCRATCH, {"sscratch", MISCREG_SSCRATCH}},
     {CSR_SEPC, {"sepc", MISCREG_SEPC}},
     {CSR_SCAUSE, {"scause", MISCREG_SCAUSE}},
@@ -495,6 +495,7 @@ const std::map<int, CSRMetadata> CSRData = {
     {CSR_MIDELEG, {"mideleg", MISCREG_MIDELEG}},
     {CSR_MIE, {"mie", MISCREG_IE}},
     {CSR_MTVEC, {"mtvec", MISCREG_MTVEC}},
+    {CSR_MCOUNTEREN, {"mcounteren", MISCREG_MCOUNTEREN}},
     {CSR_MSCRATCH, {"mscratch", MISCREG_MSCRATCH}},
     {CSR_MEPC, {"mepc", MISCREG_MEPC}},
     {CSR_MCAUSE, {"mcause", MISCREG_MCAUSE}},
@@ -645,6 +646,7 @@ const off_t FRM_OFFSET = 5;
 
 const RegVal ISA_MXL_MASK = 3ULL << MXL_OFFSET;
 const RegVal ISA_EXT_MASK = mask(26);
+const RegVal ISA_EXT_C_MASK = 1UL << ('c' - 'a');
 const RegVal MISA_MASK = ISA_MXL_MASK | ISA_EXT_MASK;
 
 const RegVal STATUS_SD_MASK = 1ULL << ((sizeof(uint64_t) * 8) - 1);

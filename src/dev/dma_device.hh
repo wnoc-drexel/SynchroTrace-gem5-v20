@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Nathan Binkert
- *          Andreas Sandberg
  */
 
 #ifndef __DEV_DMA_DEVICE_HH__
@@ -56,7 +52,7 @@
 
 class ClockedObject;
 
-class DmaPort : public MasterPort, public Drainable
+class DmaPort : public RequestPort, public Drainable
 {
   private:
 
@@ -118,7 +114,7 @@ class DmaPort : public MasterPort, public Drainable
     System *const sys;
 
     /** Id for all requests */
-    const MasterID masterId;
+    const RequestorID requestorId;
 
   protected:
     /** Use a deque as we never do any insertion or removal in the middle */

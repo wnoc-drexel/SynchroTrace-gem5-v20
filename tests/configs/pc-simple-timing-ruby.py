@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nilay Vaish
 
 import m5, os, optparse, sys
 from m5.objects import *
@@ -51,7 +49,7 @@ options.l2_assoc=2
 options.num_cpus = 2
 
 #the system
-mdesc = SysConfig(disk = 'linux-x86.img')
+mdesc = SysConfig(disks = ['linux-x86.img'])
 system = FSConfig.makeLinuxX86System('timing', options.num_cpus,
                                      mdesc=mdesc, Ruby=True)
 system.kernel = SysPaths.binary('x86_64-vmlinux-2.6.22.9')

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2015, 2018 ARM Limited
+ * Copyright (c) 2012-2013, 2015, 2018, 2020 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __CPU_SIMPLE_ATOMIC_HH__
@@ -88,7 +86,7 @@ class AtomicSimpleCPU : public BaseSimpleCPU
      * <li>Stay at PC is true.
      * </ul>
      */
-    bool isDrained() {
+    bool isCpuDrained() const {
         SimpleExecContext &t_info = *threadInfo[curThread];
 
         return t_info.thread->microPC() == 0 &&
@@ -103,7 +101,7 @@ class AtomicSimpleCPU : public BaseSimpleCPU
      */
     bool tryCompleteDrain();
 
-    virtual Tick sendPacket(MasterPort &port, const PacketPtr &pkt);
+    virtual Tick sendPacket(RequestPort &port, const PacketPtr &pkt);
 
     /**
      * An AtomicCPUPort overrides the default behaviour of the
@@ -111,13 +109,13 @@ class AtomicSimpleCPU : public BaseSimpleCPU
      * also provides an implementation for the purely virtual timing
      * functions and panics on either of these.
      */
-    class AtomicCPUPort : public MasterPort
+    class AtomicCPUPort : public RequestPort
     {
 
       public:
 
         AtomicCPUPort(const std::string &_name, BaseSimpleCPU* _cpu)
-            : MasterPort(_name, _cpu)
+            : RequestPort(_name, _cpu)
         { }
 
       protected:
@@ -174,10 +172,10 @@ class AtomicSimpleCPU : public BaseSimpleCPU
   protected:
 
     /** Return a reference to the data port. */
-    MasterPort &getDataPort() override { return dcachePort; }
+    Port &getDataPort() override { return dcachePort; }
 
     /** Return a reference to the instruction port. */
-    MasterPort &getInstPort() override { return icachePort; }
+    Port &getInstPort() override { return icachePort; }
 
     /** Perform snoop for other cpu-local thread contexts. */
     void threadSnoop(PacketPtr pkt, ThreadID sender);
@@ -218,16 +216,28 @@ class AtomicSimpleCPU : public BaseSimpleCPU
 
     Fault readMem(Addr addr, uint8_t *data, unsigned size,
                   Request::Flags flags,
-                  const std::vector<bool>& byteEnable = std::vector<bool>())
+                  const std::vector<bool>& byte_enable = std::vector<bool>())
         override;
+
+    Fault initiateHtmCmd(Request::Flags flags) override
+    {
+        panic("initiateHtmCmd() is for timing accesses, and should "
+              "never be called on AtomicSimpleCPU.\n");
+    }
+
+    void htmSendAbortSignal(HtmFailureFaultCause cause) override
+    {
+        panic("htmSendAbortSignal() is for timing accesses, and should "
+              "never be called on AtomicSimpleCPU.\n");
+    }
 
     Fault writeMem(uint8_t *data, unsigned size,
                    Addr addr, Request::Flags flags, uint64_t *res,
-                   const std::vector<bool>& byteEnable = std::vector<bool>())
+                   const std::vector<bool>& byte_enable = std::vector<bool>())
         override;
 
     Fault amoMem(Addr addr, uint8_t* data, unsigned size,
-                 Request::Flags flags, AtomicOpFunctor *amo_op) override;
+                 Request::Flags flags, AtomicOpFunctorPtr amo_op) override;
 
     void regProbePoints() override;
 

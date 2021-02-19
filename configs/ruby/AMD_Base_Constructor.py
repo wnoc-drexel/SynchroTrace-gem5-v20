@@ -28,16 +28,13 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Sooraj Puthoor,
-#          Lisa Hsu
 
 import math
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
 from m5.util import addToPath, convert
-from CntrlBase import *
+from .CntrlBase import *
 
 addToPath('../')
 
@@ -52,7 +49,7 @@ class L1Cache(RubyCache):
     def create(self, size, assoc, options):
         self.size = MemorySize(size)
         self.assoc = assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 #
 # Note: the L2 Cache latency is not currently used
@@ -63,7 +60,7 @@ class L2Cache(RubyCache):
     def create(self, size, assoc, options):
         self.size = MemorySize(size)
         self.assoc = assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 class CPCntrl(AMD_Base_Controller, CntrlBase):
 
     def create(self, options, ruby_system, system):

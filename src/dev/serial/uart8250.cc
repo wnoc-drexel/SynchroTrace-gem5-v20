@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /** @file
@@ -39,7 +37,6 @@
 
 #include "base/inifile.hh"
 #include "base/trace.hh"
-#include "config/the_isa.hh"
 #include "debug/Uart.hh"
 #include "dev/platform.hh"
 #include "mem/packet.hh"

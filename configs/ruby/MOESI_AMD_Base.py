@@ -28,16 +28,14 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Lisa Hsu
 
 import math
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
 from m5.util import addToPath
-from Ruby import create_topology
-from Ruby import send_evicts
+from .Ruby import create_topology
+from .Ruby import send_evicts
 from common import FileSystemConfig
 
 addToPath('../')
@@ -71,21 +69,21 @@ class L1DCache(RubyCache):
     def create(self, options):
         self.size = MemorySize(options.l1d_size)
         self.assoc = options.l1d_assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class L1ICache(RubyCache):
     resourceStalls = False
     def create(self, options):
         self.size = MemorySize(options.l1i_size)
         self.assoc = options.l1i_assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class L2Cache(RubyCache):
     resourceStalls = False
     def create(self, options):
         self.size = MemorySize(options.l2_size)
         self.assoc = options.l2_assoc
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class CPCntrl(CorePair_Controller, CntrlBase):
 
@@ -143,7 +141,7 @@ class L3Cache(RubyCache):
         self.dataAccessLatency = options.l3_data_latency
         self.tagAccessLatency = options.l3_tag_latency
         self.resourceStalls = options.no_resource_stalls
-        self.replacement_policy = PseudoLRUReplacementPolicy()
+        self.replacement_policy = TreePLRURP()
 
 class L3Cntrl(L3Cache_Controller, CntrlBase):
     def create(self, options, ruby_system, system):
@@ -279,6 +277,8 @@ def create_system(options, full_system, system, dma_devices, bootmem,
 
         dir_cntrl.triggerQueue = MessageBuffer(ordered = True)
         dir_cntrl.L3triggerQueue = MessageBuffer(ordered = True)
+
+        dir_cntrl.requestToMemory = MessageBuffer()
         dir_cntrl.responseFromMemory = MessageBuffer()
 
         exec("system.dir_cntrl%d = dir_cntrl" % i)
@@ -328,16 +328,16 @@ def create_system(options, full_system, system, dma_devices, bootmem,
 
     # Register CPUs and caches for each CorePair and directory (SE mode only)
     if not full_system:
-        for i in xrange((options.num_cpus + 1) // 2):
+        for i in range((options.num_cpus + 1) // 2):
             FileSystemConfig.register_cpu(physical_package_id = 0,
                                           core_siblings =
-                                            xrange(options.num_cpus),
+                                            range(options.num_cpus),
                                           core_id = i*2,
                                           thread_siblings = [])
 
             FileSystemConfig.register_cpu(physical_package_id = 0,
                                           core_siblings =
-                                            xrange(options.num_cpus),
+                                            range(options.num_cpus),
                                           core_id = i*2+1,
                                           thread_siblings = [])
 
@@ -376,7 +376,7 @@ def create_system(options, full_system, system, dma_devices, bootmem,
                                             line_size = options.cacheline_size,
                                             assoc = options.l3_assoc,
                                             cpus = [n for n in
-                                                xrange(options.num_cpus)])
+                                                range(options.num_cpus)])
 
     # Assuming no DMA devices
     assert(len(dma_devices) == 0)

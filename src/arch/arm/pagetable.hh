@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #ifndef __ARCH_ARM_PAGETABLE_H__
@@ -47,16 +45,13 @@
 
 #include "arch/arm/isa_traits.hh"
 #include "arch/arm/utility.hh"
-#include "arch/arm/vtophys.hh"
 #include "sim/serialize.hh"
 
-namespace ArmISA {
-
-struct VAddr
+namespace ArmISA
 {
-    VAddr(Addr a) { panic("not implemented yet."); }
-};
 
+// Max. physical address range in bits supported by the architecture
+const unsigned MaxPhysAddrRange = 48;
 
 // ITB/DTB page table entry
 struct PTE
@@ -133,7 +128,7 @@ struct TlbEntry : public Serializable
     // True if the entry was brought in from a non-secure page table
     bool nstid;
     // Exception level on insert, AARCH64 EL0&1, AARCH32 -> el=1
-    uint8_t el;
+    ExceptionLevel el;
 
     // Type of memory
     bool nonCacheable;     // Can we wrap this in mtype?
@@ -154,7 +149,7 @@ struct TlbEntry : public Serializable
          innerAttrs(0), outerAttrs(0), ap(read_only ? 0x3 : 0), hap(0x3),
          domain(DomainType::Client),  mtype(MemoryType::StronglyOrdered),
          longDescFormat(false), isHyp(false), global(false), valid(true),
-         ns(true), nstid(true), el(0), nonCacheable(uncacheable),
+         ns(true), nstid(true), el(EL0), nonCacheable(uncacheable),
          shareable(false), outerShareable(false), xn(0), pxn(0)
     {
         // no restrictions by default, hap = 0x3
@@ -169,7 +164,7 @@ struct TlbEntry : public Serializable
          vmid(0), N(0), innerAttrs(0), outerAttrs(0), ap(0), hap(0x3),
          domain(DomainType::Client), mtype(MemoryType::StronglyOrdered),
          longDescFormat(false), isHyp(false), global(false), valid(false),
-         ns(true), nstid(true), el(0), nonCacheable(false),
+         ns(true), nstid(true), el(EL0), nonCacheable(false),
          shareable(false), outerShareable(false), xn(0), pxn(0)
     {
         // no restrictions by default, hap = 0x3
@@ -191,25 +186,24 @@ struct TlbEntry : public Serializable
 
     bool
     match(Addr va, uint8_t _vmid, bool hypLookUp, bool secure_lookup,
-          uint8_t target_el) const
+          ExceptionLevel target_el, bool in_host) const
     {
-        return match(va, 0, _vmid, hypLookUp, secure_lookup, true, target_el);
+        return match(va, 0, _vmid, hypLookUp, secure_lookup, true,
+                     target_el, in_host);
     }
 
     bool
     match(Addr va, uint16_t asn, uint8_t _vmid, bool hypLookUp,
-          bool secure_lookup, bool ignore_asn, uint8_t target_el) const
+          bool secure_lookup, bool ignore_asn, ExceptionLevel target_el,
+          bool in_host) const
     {
         bool match = false;
         Addr v = vpn << N;
-
         if (valid && va >= v && va <= v + size && (secure_lookup == !nstid) &&
             (hypLookUp == isHyp))
         {
-            if (target_el == 2 || target_el == 3)
-                match = (el == target_el);
-            else
-                match = (el == 0) || (el == 1);
+            match = checkELMatch(target_el, in_host);
+
             if (match && !ignore_asn) {
                 match = global || (asn == asid);
             }
@@ -218,6 +212,24 @@ struct TlbEntry : public Serializable
             }
         }
         return match;
+    }
+
+    bool
+    checkELMatch(ExceptionLevel target_el, bool in_host) const
+    {
+        switch (target_el) {
+            case EL3:
+                return el == EL3;
+            case EL2:
+              {
+                return el == EL2 || (el == EL0 && in_host);
+              }
+            case EL1:
+            case EL0:
+                return (el == EL0) || (el == EL1);
+            default:
+                return false;
+        }
     }
 
     Addr

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /** @file
@@ -94,7 +92,7 @@ SectorSubBlk::invalidate()
 
 void
 SectorSubBlk::insert(const Addr tag, const bool is_secure,
-                     const int src_master_ID, const uint32_t task_ID)
+                     const int src_requestor_ID, const uint32_t task_ID)
 {
     // Make sure it is not overwriting another sector
     panic_if((_sectorBlk && _sectorBlk->isValid()) &&
@@ -102,7 +100,7 @@ SectorSubBlk::insert(const Addr tag, const bool is_secure,
               (_sectorBlk->isSecure() != is_secure)),
               "Overwriting valid sector!");
 
-    CacheBlk::insert(tag, is_secure, src_master_ID, task_ID);
+    CacheBlk::insert(tag, is_secure, src_requestor_ID, task_ID);
 
     // Set sector tag
     _sectorBlk->setTag(tag);
@@ -116,7 +114,7 @@ SectorSubBlk::print() const
 }
 
 SectorBlk::SectorBlk()
-    : ReplaceableEntry(), _tag(MaxAddr), _validCounter(0), _secureBit(false)
+    : ReplaceableEntry(), _validCounter(0), _tag(MaxAddr), _secureBit(false)
 {
 }
 
@@ -125,6 +123,12 @@ SectorBlk::isValid() const
 {
     // If any of the blocks in the sector is valid, so is the sector
     return _validCounter > 0;
+}
+
+uint8_t
+SectorBlk::getNumValid() const
+{
+    return _validCounter;
 }
 
 bool
@@ -166,4 +170,13 @@ void
 SectorBlk::setSecure()
 {
     _secureBit = true;
+}
+
+void
+SectorBlk::setPosition(const uint32_t set, const uint32_t way)
+{
+    ReplaceableEntry::setPosition(set, way);
+    for (auto& blk : blks) {
+        blk->setPosition(set, way);
+    }
 }

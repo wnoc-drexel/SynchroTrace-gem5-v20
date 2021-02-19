@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Alec Roelke
  */
 
 #ifndef __ARCH_RISCV_INSTS_AMO_HH__
@@ -53,7 +51,7 @@ class MemFenceMicro : public RiscvMicroInst
 
     Fault execute(ExecContext *, Trace::InstRecord *) const override;
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 // load-reserved
@@ -63,7 +61,7 @@ class LoadReserved : public RiscvMacroInst
     using RiscvMacroInst::RiscvMacroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class LoadReservedMicro : public RiscvMicroInst
@@ -73,7 +71,7 @@ class LoadReservedMicro : public RiscvMicroInst
     using RiscvMicroInst::RiscvMicroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 // store-cond
@@ -83,7 +81,7 @@ class StoreCond : public RiscvMacroInst
     using RiscvMacroInst::RiscvMacroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class StoreCondMicro : public RiscvMicroInst
@@ -93,7 +91,7 @@ class StoreCondMicro : public RiscvMicroInst
     using RiscvMicroInst::RiscvMicroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 // AMOs
@@ -103,7 +101,7 @@ class AtomicMemOp : public RiscvMacroInst
     using RiscvMacroInst::RiscvMacroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 class AtomicMemOpMicro : public RiscvMicroInst
@@ -113,7 +111,7 @@ class AtomicMemOpMicro : public RiscvMicroInst
     using RiscvMicroInst::RiscvMicroInst;
 
     std::string generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const override;
+        Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
 /**

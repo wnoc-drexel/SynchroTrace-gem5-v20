@@ -65,21 +65,39 @@
     extraWeightsWidth(p->extraWeightsWidth),
     scCountersWidth(p->scCountersWidth),
     firstH(0),
-    secondH(0)
+    secondH(0),
+    stats(this)
 {
     wb.resize(1 << logSizeUps, 4);
 
-    initGEHLTable(lnb, lm, lgehl, logLnb, wl, 7);
-    initGEHLTable(bwnb, bwm, bwgehl, logBwnb, wbw, 7);
-    initGEHLTable(inb, im, igehl, logInb, wi, 7);
+    initGEHLTable(lnb, lm, lgehl, logLnb, wl, p->lWeightInitValue);
+    initGEHLTable(bwnb, bwm, bwgehl, logBwnb, wbw, p->bwWeightInitValue);
+    initGEHLTable(inb, im, igehl, logInb, wi, p->iWeightInitValue);
 
     updateThreshold = 35 << 3;
 
-    pUpdateThreshold.resize(1 << logSizeUp, 0);
+    pUpdateThreshold.resize(1 << logSizeUp, p->initialUpdateThresholdValue);
 
     bias.resize(1 << logBias);
     biasSK.resize(1 << logBias);
     biasBank.resize(1 << logBias);
+}
+
+StatisticalCorrector::BranchInfo*
+StatisticalCorrector::makeBranchInfo()
+{
+    return new BranchInfo();
+}
+
+StatisticalCorrector::SCThreadHistory*
+StatisticalCorrector::makeThreadHistory()
+{
+    return new SCThreadHistory();
+}
+
+void
+StatisticalCorrector::initBias()
+{
     for (int j = 0; j < (1 << logBias); j++) {
         switch (j & 3) {
           case 0:
@@ -104,18 +122,6 @@
             break;
         }
     }
-}
-
-StatisticalCorrector::BranchInfo*
-StatisticalCorrector::makeBranchInfo()
-{
-    return new BranchInfo();
-}
-
-StatisticalCorrector::SCThreadHistory*
-StatisticalCorrector::makeThreadHistory()
-{
-    return new SCThreadHistory();
 }
 
 void
@@ -218,7 +224,7 @@ bool
 StatisticalCorrector::scPredict(ThreadID tid, Addr branch_pc, bool cond_branch,
                      BranchInfo* bi, bool prev_pred_taken, bool bias_bit,
                      bool use_conf_ctr, int8_t conf_ctr, unsigned conf_bits,
-                     int hitBank, int altBank, int64_t phist)
+                     int hitBank, int altBank, int64_t phist, int init_lsum)
 {
     bool pred_taken = prev_pred_taken;
     if (cond_branch) {
@@ -232,7 +238,7 @@ StatisticalCorrector::scPredict(ThreadID tid, Addr branch_pc, bool cond_branch,
             bi->highConf = (abs(2 * conf_ctr + 1) >= (1<<conf_bits) - 1);
         }
 
-        int lsum = 0;
+        int lsum = init_lsum;
 
         int8_t ctr = bias[getIndBias(branch_pc, bi, bias_bit)];
         lsum += (2 * ctr + 1);
@@ -280,9 +286,14 @@ StatisticalCorrector::scPredict(ThreadID tid, Addr branch_pc, bool cond_branch,
 }
 
 void
-StatisticalCorrector::scHistoryUpdate(Addr branch_pc, int brtype, bool taken,
-                           BranchInfo * tage_bi, Addr corrTarget)
+StatisticalCorrector::scHistoryUpdate(Addr branch_pc,
+        const StaticInstPtr &inst, bool taken, BranchInfo * tage_bi,
+        Addr corrTarget)
 {
+    int brtype = inst->isDirectCtrl() ? 0 : 2;
+    if (! inst->isUncondCtrl()) {
+        ++brtype;
+    }
     // Non speculative SC histories update
     if (brtype & 1) {
         if (corrTarget < branch_pc) {
@@ -366,9 +377,9 @@ void
 StatisticalCorrector::updateStats(bool taken, BranchInfo *bi)
 {
     if (taken == bi->scPred) {
-        scPredictorCorrect++;
+        stats.correct++;
     } else {
-        scPredictorWrong++;
+        stats.wrong++;
     }
 }
 
@@ -376,18 +387,22 @@ void
 StatisticalCorrector::init()
 {
     scHistory = makeThreadHistory();
+    initBias();
 }
 
-void
-StatisticalCorrector::regStats()
+size_t
+StatisticalCorrector::getSizeInBits() const
 {
-    scPredictorCorrect
-        .name(name() + ".scPredictorCorrect")
-        .desc("Number of time the SC predictor is the provider and "
-              "the prediction is correct");
+    // Not implemented
+    return 0;
+}
 
-    scPredictorWrong
-        .name(name() + ".scPredictorWrong")
-        .desc("Number of time the SC predictor is the provider and "
-              "the prediction is wrong");
+StatisticalCorrector::StatisticalCorrectorStats::StatisticalCorrectorStats(
+    Stats::Group *parent)
+    : Stats::Group(parent),
+      ADD_STAT(correct, "Number of time the SC predictor is the"
+          " provider and the prediction is correct"),
+      ADD_STAT(wrong, "Number of time the SC predictor is the"
+          " provider and the prediction is wrong")
+{
 }

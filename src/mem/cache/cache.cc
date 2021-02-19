@@ -37,14 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Dave Greene
- *          Nathan Binkert
- *          Steve Reinhardt
- *          Ron Dreslinski
- *          Andreas Sandberg
- *          Nikos Nikoleris
  */
 
 /**
@@ -104,7 +96,7 @@ Cache::satisfyRequest(PacketPtr pkt, CacheBlk *blk,
             } else if (blk->isWritable() && !pending_downgrade &&
                        !pkt->hasSharers() &&
                        pkt->cmd != MemCmd::ReadCleanReq) {
-                // we can give the requester a writable copy on a read
+                // we can give the requestor a writable copy on a read
                 // request if:
                 // - we have a writable copy at this level (& below)
                 // - we don't have a pending snoop from below
@@ -334,7 +326,7 @@ Cache::handleTimingReqMiss(PacketPtr pkt, CacheBlk *blk, Tick forward_time,
         // should have flushed and have no valid block
         assert(!blk || !blk->isValid());
 
-        mshr_uncacheable[pkt->cmdToIndex()][pkt->req->masterId()]++;
+        stats.cmdStats(pkt).mshr_uncacheable[pkt->req->requestorId()]++;
 
         if (pkt->isWrite()) {
             allocateWriteBuffer(pkt, forward_time);
@@ -379,9 +371,9 @@ Cache::handleTimingReqMiss(PacketPtr pkt, CacheBlk *blk, Tick forward_time,
         if (!mshr) {
             // copy the request and create a new SoftPFReq packet
             RequestPtr req = std::make_shared<Request>(pkt->req->getPaddr(),
-                                                       pkt->req->getSize(),
-                                                       pkt->req->getFlags(),
-                                                       pkt->req->masterId());
+                                                    pkt->req->getSize(),
+                                                    pkt->req->getFlags(),
+                                                    pkt->req->requestorId());
             pf = new Packet(req, pkt->cmd);
             pf->allocate();
             assert(pf->matchAddr(pkt));
@@ -710,6 +702,32 @@ Cache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt, CacheBlk *blk)
 
             // Software prefetch handling for cache closest to core
             if (tgt_pkt->cmd.isSWPrefetch()) {
+                if (tgt_pkt->needsWritable()) {
+                    // All other copies of the block were invalidated and we
+                    // have an exclusive copy.
+
+                    // The coherence protocol assumes that if we fetched an
+                    // exclusive copy of the block, we have the intention to
+                    // modify it. Therefore the MSHR for the PrefetchExReq has
+                    // been the point of ordering and this cache has commited
+                    // to respond to snoops for the block.
+                    //
+                    // In most cases this is true anyway - a PrefetchExReq
+                    // will be followed by a WriteReq. However, if that
+                    // doesn't happen, the block is not marked as dirty and
+                    // the cache doesn't respond to snoops that has committed
+                    // to do so.
+                    //
+                    // To avoid deadlocks in cases where there is a snoop
+                    // between the PrefetchExReq and the expected WriteReq, we
+                    // proactively mark the block as Dirty.
+                    assert(blk);
+                    blk->status |= BlkDirty;
+
+                    panic_if(isReadOnly, "Prefetch exclusive requests from "
+                            "read-only cache %s\n", name());
+                }
+
                 // a software prefetch would have already been ack'd
                 // immediately with dummy data so the core would be able to
                 // retire it. This request completes right here, so we
@@ -730,7 +748,14 @@ Cache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt, CacheBlk *blk)
                 assert(blk->isWritable());
             }
 
-            if (blk && blk->isValid() && !mshr->isForward) {
+            // Here we decide whether we will satisfy the target using
+            // data from the block or from the response. We use the
+            // block data to satisfy the request when the block is
+            // present and valid and in addition the response in not
+            // forwarding data to the cache above (we didn't fill
+            // either); otherwise we use the packet data.
+            if (blk && blk->isValid() &&
+                (!mshr->isForward || !pkt->hasData())) {
                 satisfyRequest(tgt_pkt, blk, true, mshr->hasPostDowngrade());
 
                 // How many bytes past the first request is this one
@@ -749,8 +774,9 @@ Cache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt, CacheBlk *blk)
 
                 assert(!tgt_pkt->req->isUncacheable());
 
-                assert(tgt_pkt->req->masterId() < system->maxMasters());
-                missLatency[tgt_pkt->cmdToIndex()][tgt_pkt->req->masterId()] +=
+                assert(tgt_pkt->req->requestorId() < system->maxRequestors());
+                stats.cmdStats(tgt_pkt)
+                    .missLatency[tgt_pkt->req->requestorId()] +=
                     completion_time - target.recvTime;
             } else if (pkt->cmd == MemCmd::UpgradeFailResp) {
                 // failed StoreCond upgrade
@@ -764,15 +790,15 @@ Cache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt, CacheBlk *blk)
                     pkt->payloadDelay;
                 tgt_pkt->req->setExtraData(0);
             } else {
-                // We are about to send a response to a cache above
-                // that asked for an invalidation; we need to
-                // invalidate our copy immediately as the most
-                // up-to-date copy of the block will now be in the
-                // cache above. It will also prevent this cache from
-                // responding (if the block was previously dirty) to
-                // snoops as they should snoop the caches above where
-                // they will get the response from.
                 if (is_invalidate && blk && blk->isValid()) {
+                    // We are about to send a response to a cache above
+                    // that asked for an invalidation; we need to
+                    // invalidate our copy immediately as the most
+                    // up-to-date copy of the block will now be in the
+                    // cache above. It will also prevent this cache from
+                    // responding (if the block was previously dirty) to
+                    // snoops as they should snoop the caches above where
+                    // they will get the response from.
                     invalidateBlock(blk);
                 }
                 // not a cache fill, just forwarding response
@@ -780,12 +806,22 @@ Cache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt, CacheBlk *blk)
                 // from lower level cahces/memory to the core.
                 completion_time += clockEdge(responseLatency) +
                     pkt->payloadDelay;
-                if (pkt->isRead() && !is_error) {
-                    // sanity check
-                    assert(pkt->matchAddr(tgt_pkt));
-                    assert(pkt->getSize() >= tgt_pkt->getSize());
+                if (!is_error) {
+                    if (pkt->isRead()) {
+                        // sanity check
+                        assert(pkt->matchAddr(tgt_pkt));
+                        assert(pkt->getSize() >= tgt_pkt->getSize());
 
-                    tgt_pkt->setData(pkt->getConstPtr<uint8_t>());
+                        tgt_pkt->setData(pkt->getConstPtr<uint8_t>());
+                    } else {
+                        // MSHR targets can read data either from the
+                        // block or the response pkt. If we can't get data
+                        // from the block (i.e., invalid or has old data)
+                        // or the response (did not bring in any data)
+                        // then make sure that the target didn't expect
+                        // any.
+                        assert(!tgt_pkt->hasRespData());
+                    }
                 }
 
                 // this response did not allocate here and therefore
@@ -876,7 +912,7 @@ Cache::cleanEvictBlk(CacheBlk *blk)
 
     // Creating a zero sized write, a message to the snoop filter
     RequestPtr req = std::make_shared<Request>(
-        regenerateBlkAddr(blk), blkSize, 0, Request::wbMasterId);
+        regenerateBlkAddr(blk), blkSize, 0, Request::wbRequestorId);
 
     if (blk->isSecure())
         req->setFlags(Request::SECURE);
@@ -970,7 +1006,7 @@ Cache::handleSnoop(PacketPtr pkt, CacheBlk *blk, bool is_timing,
     if (forwardSnoops) {
         // first propagate snoop upward to see if anyone above us wants to
         // handle it.  save & restore packet src since it will get
-        // rewritten to be relative to cpu-side bus (if any)
+        // rewritten to be relative to CPU-side bus (if any)
         if (is_timing) {
             // copy the packet so that we can clear any flags before
             // forwarding it upwards, we also allocate data (passing
@@ -990,7 +1026,7 @@ Cache::handleSnoop(PacketPtr pkt, CacheBlk *blk, bool is_timing,
 
             // If this request is a prefetch or clean evict and an upper level
             // signals block present, make sure to propagate the block
-            // presence to the requester.
+            // presence to the requestor.
             if (snoopPkt.isBlockCached()) {
                 pkt->setBlockCached();
             }
@@ -1008,7 +1044,7 @@ Cache::handleSnoop(PacketPtr pkt, CacheBlk *blk, bool is_timing,
             cpuSidePort.sendAtomicSnoop(pkt);
             if (!already_responded && pkt->cacheResponding()) {
                 // cache-to-cache response from some upper cache:
-                // forward response to original requester
+                // forward response to original requestor
                 assert(pkt->isResponse());
             }
         }

@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #include "dev/arm/amba_device.hh"
@@ -57,7 +55,7 @@ AmbaPioDevice::AmbaPioDevice(const Params *p, Addr pio_size)
 
 AmbaIntDevice::AmbaIntDevice(const Params *p, Addr pio_size)
     : AmbaPioDevice(p, pio_size),
-      intNum(p->int_num), gic(p->gic), intDelay(p->int_delay)
+      interrupt(p->interrupt->get()), intDelay(p->int_delay)
 {
 }
 
@@ -66,7 +64,7 @@ AmbaIntDevice::AmbaIntDevice(const Params *p, Addr pio_size)
 AmbaDmaDevice::AmbaDmaDevice(const Params *p, Addr pio_size)
     : DmaDevice(p), ambaId(AmbaVendor | p->amba_id),
       pioAddr(p->pio_addr), pioSize(pio_size),
-      pioDelay(p->pio_latency),intNum(p->int_num), gic(p->gic)
+      pioDelay(p->pio_latency), interrupt(p->interrupt->get())
 {
 }
 
@@ -82,7 +80,7 @@ AmbaDevice::readId(PacketPtr pkt, uint64_t amba_id, Addr pio_addr)
     DPRINTF(AMBA, "Returning %#x for offset %#x(%d)\n",
             (amba_id >> byte) & 0xFF,
             pkt->getAddr() - pio_addr, byte);
-    assert(pkt->getSize() == 4);
-    pkt->setLE<uint32_t>((amba_id >> byte) & 0xFF);
+
+    pkt->setUintX((amba_id >> byte) & 0xFF, ByteOrder::little);
     return true;
 }

@@ -38,17 +38,13 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
-#          Steve Reinhardt
-#          Andreas Sandberg
 
 from abc import ABCMeta, abstractmethod
 import difflib
 import re
 import sys
 
-from region import *
+from .region import *
 
 tabsize = 8
 lead = re.compile(r'^([ \t]+)')
@@ -82,18 +78,6 @@ class StdioUI(UserInterface):
 
     def write(self, string):
         sys.stdout.write(string)
-
-class MercurialUI(UserInterface):
-    def __init__(self, ui, *args, **kwargs):
-        super(MercurialUI, self).__init__(*args, **kwargs)
-        self.hg_ui = ui
-
-    def _prompt(self, prompt, results, default):
-        return self.hg_ui.prompt(prompt, default=default)
-
-    def write(self, string):
-        self.hg_ui.write(string)
-
 
 def _re_ignore(expr):
     """Helper function to create regular expression ignore file

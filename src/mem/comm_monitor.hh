@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2015, 2018 ARM Limited
+ * Copyright (c) 2012-2013, 2015, 2018-2019 ARM Limited
  * Copyright (c) 2016 Google Inc.
  * Copyright (c) 2017, Centre National de la Recherche Scientifique
  * All rights reserved.
@@ -35,11 +35,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Rahul Thakur
- *          Pierre-Yves Peneau
  */
 
 #ifndef __MEM_COMM_MONITOR_HH__
@@ -80,7 +75,6 @@ class CommMonitor : public SimObject
     CommMonitor(Params* params);
 
     void init() override;
-    void regStats() override;
     void startup() override;
     void regProbePoints() override;
 
@@ -118,18 +112,18 @@ class CommMonitor : public SimObject
     };
 
     /**
-     * This is the master port of the communication monitor. All recv
+     * This is the request port of the communication monitor. All recv
      * functions call a function in CommMonitor, where the
-     * send function of the slave port is called. Besides this, these
+     * send function of the CPU-side port is called. Besides this, these
      * functions can also perform actions for capturing statistics.
      */
-    class MonitorMasterPort : public MasterPort
+    class MonitorRequestPort : public RequestPort
     {
 
       public:
 
-        MonitorMasterPort(const std::string& _name, CommMonitor& _mon)
-            : MasterPort(_name, &_mon), mon(_mon)
+        MonitorRequestPort(const std::string& _name, CommMonitor& _mon)
+            : RequestPort(_name, &_mon), mon(_mon)
         { }
 
       protected:
@@ -180,22 +174,22 @@ class CommMonitor : public SimObject
 
     };
 
-    /** Instance of master port, facing the memory side */
-    MonitorMasterPort masterPort;
+    /** Instance of request port, facing the memory side */
+    MonitorRequestPort memSidePort;
 
     /**
-     * This is the slave port of the communication monitor. All recv
+     * This is the CPU-side port of the communication monitor. All recv
      * functions call a function in CommMonitor, where the
-     * send function of the master port is called. Besides this, these
+     * send function of the request port is called. Besides this, these
      * functions can also perform actions for capturing statistics.
      */
-    class MonitorSlavePort : public SlavePort
+    class MonitorResponsePort : public ResponsePort
     {
 
       public:
 
-        MonitorSlavePort(const std::string& _name, CommMonitor& _mon)
-            : SlavePort(_name, &_mon), mon(_mon)
+        MonitorResponsePort(const std::string& _name, CommMonitor& _mon)
+            : ResponsePort(_name, &_mon), mon(_mon)
         { }
 
       protected:
@@ -241,8 +235,8 @@ class CommMonitor : public SimObject
 
     };
 
-    /** Instance of slave port, i.e. on the CPU side */
-    MonitorSlavePort slavePort;
+    /** Instance of response port, i.e. on the CPU side */
+    MonitorResponsePort cpuSidePort;
 
     void recvFunctional(PacketPtr pkt);
 
@@ -275,9 +269,8 @@ class CommMonitor : public SimObject
     bool tryTiming(PacketPtr pkt);
 
     /** Stats declarations, all in a struct for convenience. */
-    struct MonitorStats
+    struct MonitorStats : public Stats::Group
     {
-
         /** Disable flag for burst length histograms **/
         bool disableBurstLengthHists;
 
@@ -296,8 +289,8 @@ class CommMonitor : public SimObject
          */
         unsigned int readBytes;
         Stats::Histogram readBandwidthHist;
-        Stats::Formula averageReadBW;
         Stats::Scalar totalReadBytes;
+        Stats::Formula averageReadBandwidth;
 
         /**
          * Histogram for write bandwidth per sample window. The
@@ -305,8 +298,8 @@ class CommMonitor : public SimObject
          */
         unsigned int writtenBytes;
         Stats::Histogram writeBandwidthHist;
-        Stats::Formula averageWriteBW;
         Stats::Scalar totalWrittenBytes;
+        Stats::Formula averageWriteBandwidth;
 
         /** Disable flag for latency histograms. */
         bool disableLatencyHists;
@@ -389,21 +382,7 @@ class CommMonitor : public SimObject
          * that are not statistics themselves, but used to control the
          * stats or track values during a sample period.
          */
-        MonitorStats(const CommMonitorParams* params) :
-            disableBurstLengthHists(params->disable_burst_length_hists),
-            disableBandwidthHists(params->disable_bandwidth_hists),
-            readBytes(0), writtenBytes(0),
-            disableLatencyHists(params->disable_latency_hists),
-            disableITTDists(params->disable_itt_dists),
-            timeOfLastRead(0), timeOfLastWrite(0), timeOfLastReq(0),
-            disableOutstandingHists(params->disable_outstanding_hists),
-            outstandingReadReqs(0), outstandingWriteReqs(0),
-            disableTransactionHists(params->disable_transaction_hists),
-            readTrans(0), writeTrans(0),
-            disableAddrDists(params->disable_addr_dists),
-            readAddrMask(params->read_addr_mask),
-            writeAddrMask(params->write_addr_mask)
-        { }
+        MonitorStats(Stats::Group *parent, const CommMonitorParams* params);
 
         void updateReqStats(const ProbePoints::PacketInfo& pkt, bool is_atomic,
                             bool expects_response);

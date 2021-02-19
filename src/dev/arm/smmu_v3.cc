@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
  */
 
 #include "dev/arm/smmu_v3.hh"
@@ -54,11 +52,11 @@
 #include "sim/system.hh"
 
 SMMUv3::SMMUv3(SMMUv3Params *params) :
-    MemObject(params),
+    ClockedObject(params),
     system(*params->system),
-    masterId(params->system->getMasterId(this)),
-    masterPort(name() + ".master", *this),
-    masterTableWalkPort(name() + ".master_walker", *this),
+    requestorId(params->system->getRequestorId(this)),
+    requestPort(name() + ".request", *this),
+    tableWalkPort(name() + ".walker", *this),
     controlPort(name() + ".control", *this, params->reg_map),
     tlb(params->tlb_entries, params->tlb_assoc, params->tlb_policy),
     configCache(params->cfg_entries, params->cfg_assoc, params->cfg_policy),
@@ -76,14 +74,14 @@ SMMUv3::SMMUv3(SMMUv3Params *params) :
     walkCacheNonfinalEnable(params->wc_nonfinal_enable),
     walkCacheS1Levels(params->wc_s1_levels),
     walkCacheS2Levels(params->wc_s2_levels),
-    masterPortWidth(params->master_port_width),
+    requestPortWidth(params->request_port_width),
     tlbSem(params->tlb_slots),
     ifcSmmuSem(1),
     smmuIfcSem(1),
     configSem(params->cfg_slots),
     ipaSem(params->ipa_slots),
     walkSem(params->walk_slots),
-    masterPortSem(1),
+    requestPortSem(1),
     transSem(params->xlate_slots),
     ptwSem(params->ptw_slots),
     cycleSem(1),
@@ -93,7 +91,7 @@ SMMUv3::SMMUv3(SMMUv3Params *params) :
     configLat(params->cfg_lat),
     ipaLat(params->ipa_lat),
     walkLat(params->walk_lat),
-    slaveInterfaces(params->slave_interfaces),
+    deviceInterfaces(params->device_interfaces),
     commandExecutor(name() + ".cmd_exec", *this),
     regsMap(params->reg_map),
     processCommandsEvent(this)
@@ -121,14 +119,14 @@ SMMUv3::SMMUv3(SMMUv3Params *params) :
     // store an unallowed values or if the are configuration conflicts.
     warn("SMMUv3 IDx register values unchecked\n");
 
-    for (auto ifc : slaveInterfaces)
+    for (auto ifc : deviceInterfaces)
         ifc->setSMMU(this);
 }
 
 bool
-SMMUv3::masterRecvTimingResp(PacketPtr pkt)
+SMMUv3::recvTimingResp(PacketPtr pkt)
 {
-    DPRINTF(SMMUv3, "[t] master resp addr=%#x size=%#x\n",
+    DPRINTF(SMMUv3, "[t] requestor resp addr=%#x size=%#x\n",
         pkt->getAddr(), pkt->getSize());
 
     // @todo: We need to pay for this and not just zero it out
@@ -143,7 +141,7 @@ SMMUv3::masterRecvTimingResp(PacketPtr pkt)
 }
 
 void
-SMMUv3::masterRecvReqRetry()
+SMMUv3::recvReqRetry()
 {
     assert(!packetsToRetry.empty());
 
@@ -152,29 +150,29 @@ SMMUv3::masterRecvReqRetry()
 
         assert(a.type==ACTION_SEND_REQ || a.type==ACTION_SEND_REQ_FINAL);
 
-        DPRINTF(SMMUv3, "[t] master retr addr=%#x size=%#x\n",
+        DPRINTF(SMMUv3, "[t] requestor retr addr=%#x size=%#x\n",
             a.pkt->getAddr(), a.pkt->getSize());
 
-        if (!masterPort.sendTimingReq(a.pkt))
+        if (!requestPort.sendTimingReq(a.pkt))
             break;
 
         packetsToRetry.pop();
 
         /*
          * ACTION_SEND_REQ_FINAL means that we have just forwarded the packet
-         * on the master interface; this means that we no longer hold on to
+         * on the requestor interface; this means that we no longer hold on to
          * that transaction and therefore can accept a new one.
-         * If the slave port was stalled then unstall it (send retry).
+         * If the response port was stalled then unstall it (send retry).
          */
         if (a.type == ACTION_SEND_REQ_FINAL)
-            scheduleSlaveRetries();
+            scheduleDeviceRetries();
     }
 }
 
 bool
-SMMUv3::masterTableWalkRecvTimingResp(PacketPtr pkt)
+SMMUv3::tableWalkRecvTimingResp(PacketPtr pkt)
 {
-    DPRINTF(SMMUv3, "[t] master HWTW resp addr=%#x size=%#x\n",
+    DPRINTF(SMMUv3, "[t] requestor HWTW resp addr=%#x size=%#x\n",
         pkt->getAddr(), pkt->getSize());
 
     // @todo: We need to pay for this and not just zero it out
@@ -189,7 +187,7 @@ SMMUv3::masterTableWalkRecvTimingResp(PacketPtr pkt)
 }
 
 void
-SMMUv3::masterTableWalkRecvReqRetry()
+SMMUv3::tableWalkRecvReqRetry()
 {
     assert(tableWalkPortEnable);
     assert(!packetsTableWalkToRetry.empty());
@@ -199,10 +197,10 @@ SMMUv3::masterTableWalkRecvReqRetry()
 
         assert(a.type==ACTION_SEND_REQ);
 
-        DPRINTF(SMMUv3, "[t] master HWTW retr addr=%#x size=%#x\n",
+        DPRINTF(SMMUv3, "[t] requestor HWTW retr addr=%#x size=%#x\n",
             a.pkt->getAddr(), a.pkt->getSize());
 
-        if (!masterTableWalkPort.sendTimingReq(a.pkt))
+        if (!tableWalkPort.sendTimingReq(a.pkt))
             break;
 
         packetsTableWalkToRetry.pop();
@@ -210,9 +208,9 @@ SMMUv3::masterTableWalkRecvReqRetry()
 }
 
 void
-SMMUv3::scheduleSlaveRetries()
+SMMUv3::scheduleDeviceRetries()
 {
-    for (auto ifc : slaveInterfaces) {
+    for (auto ifc : deviceInterfaces) {
         ifc->scheduleDeviceRetry();
     }
 }
@@ -241,17 +239,17 @@ SMMUv3::runProcessAtomic(SMMUProcess *proc, PacketPtr pkt)
 
         switch (action.type) {
             case ACTION_SEND_REQ:
-                // Send an MMU initiated request on the table walk port if it is
-                // enabled. Otherwise, fall through and handle same as the final
-                // ACTION_SEND_REQ_FINAL request.
+                // Send an MMU initiated request on the table walk port if
+                // it is enabled. Otherwise, fall through and handle same
+                // as the final ACTION_SEND_REQ_FINAL request.
                 if (tableWalkPortEnable) {
-                    delay += masterTableWalkPort.sendAtomic(action.pkt);
+                    delay += tableWalkPort.sendAtomic(action.pkt);
                     pkt = action.pkt;
                     break;
                 }
                 M5_FALLTHROUGH;
             case ACTION_SEND_REQ_FINAL:
-                delay += masterPort.sendAtomic(action.pkt);
+                delay += requestPort.sendAtomic(action.pkt);
                 pkt = action.pkt;
                 break;
 
@@ -291,14 +289,14 @@ SMMUv3::runProcessTiming(SMMUProcess *proc, PacketPtr pkt)
             if (tableWalkPortEnable) {
                 action.pkt->pushSenderState(proc);
 
-                DPRINTF(SMMUv3, "[t] master HWTW req  addr=%#x size=%#x\n",
+                DPRINTF(SMMUv3, "[t] requestor HWTW req  addr=%#x size=%#x\n",
                         action.pkt->getAddr(), action.pkt->getSize());
 
                 if (packetsTableWalkToRetry.empty()
-                        && masterTableWalkPort.sendTimingReq(action.pkt)) {
-                    scheduleSlaveRetries();
+                        && tableWalkPort.sendTimingReq(action.pkt)) {
+                    scheduleDeviceRetries();
                 } else {
-                    DPRINTF(SMMUv3, "[t] master HWTW req  needs retry,"
+                    DPRINTF(SMMUv3, "[t] requestor HWTW req  needs retry,"
                             " qlen=%d\n", packetsTableWalkToRetry.size());
                     packetsTableWalkToRetry.push(action);
                 }
@@ -309,13 +307,14 @@ SMMUv3::runProcessTiming(SMMUProcess *proc, PacketPtr pkt)
         case ACTION_SEND_REQ_FINAL:
             action.pkt->pushSenderState(proc);
 
-            DPRINTF(SMMUv3, "[t] master req  addr=%#x size=%#x\n",
+            DPRINTF(SMMUv3, "[t] requestor req  addr=%#x size=%#x\n",
                     action.pkt->getAddr(), action.pkt->getSize());
 
-            if (packetsToRetry.empty() && masterPort.sendTimingReq(action.pkt)) {
-                scheduleSlaveRetries();
+            if (packetsToRetry.empty() &&
+                requestPort.sendTimingReq(action.pkt)) {
+                scheduleDeviceRetries();
             } else {
-                DPRINTF(SMMUv3, "[t] master req  needs retry, qlen=%d\n",
+                DPRINTF(SMMUv3, "[t] requestor req  needs retry, qlen=%d\n",
                         packetsToRetry.size());
                 packetsToRetry.push(action);
             }
@@ -326,7 +325,7 @@ SMMUv3::runProcessTiming(SMMUProcess *proc, PacketPtr pkt)
             // @todo: We need to pay for this and not just zero it out
             action.pkt->headerDelay = action.pkt->payloadDelay = 0;
 
-            DPRINTF(SMMUv3, "[t] slave resp addr=%#x size=%#x\n",
+            DPRINTF(SMMUv3, "[t] responder resp addr=%#x size=%#x\n",
                     action.pkt->getAddr(),
                     action.pkt->getSize());
 
@@ -340,7 +339,7 @@ SMMUv3::runProcessTiming(SMMUProcess *proc, PacketPtr pkt)
             // @todo: We need to pay for this and not just zero it out
             action.pkt->headerDelay = action.pkt->payloadDelay = 0;
 
-            DPRINTF(SMMUv3, "[t] ATS slave resp addr=%#x size=%#x\n",
+            DPRINTF(SMMUv3, "[t] ATS responder resp addr=%#x size=%#x\n",
                     action.pkt->getAddr(), action.pkt->getSize());
 
             assert(action.ifc);
@@ -383,7 +382,7 @@ SMMUv3::processCommands()
 void
 SMMUv3::processCommand(const SMMUCommand &cmd)
 {
-    switch (cmd.type) {
+    switch (cmd.dw0.type) {
         case CMD_PRF_CONFIG:
             DPRINTF(SMMUv3, "CMD_PREFETCH_CONFIG - ignored\n");
             break;
@@ -392,137 +391,172 @@ SMMUv3::processCommand(const SMMUCommand &cmd)
             DPRINTF(SMMUv3, "CMD_PREFETCH_ADDR - ignored\n");
             break;
 
-        case CMD_INV_STE:
-            DPRINTF(SMMUv3, "CMD_INV_STE sid=%#x\n", cmd.data[0]);
-            configCache.invalidateSID(cmd.data[0]);
-            break;
+        case CMD_CFGI_STE: {
+            DPRINTF(SMMUv3, "CMD_CFGI_STE sid=%#x\n", cmd.dw0.sid);
+            configCache.invalidateSID(cmd.dw0.sid);
 
-        case CMD_INV_CD:
-            DPRINTF(SMMUv3, "CMD_INV_CD sid=%#x ssid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            configCache.invalidateSSID(cmd.data[0], cmd.data[1]);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateSID(cmd.dw0.sid);
+                dev_interface->mainTLB->invalidateSID(cmd.dw0.sid);
+            }
             break;
+        }
 
-        case CMD_INV_CD_ALL:
-            DPRINTF(SMMUv3, "CMD_INV_CD_ALL sid=%#x\n", cmd.data[0]);
-            configCache.invalidateSID(cmd.data[0]);
+        case CMD_CFGI_STE_RANGE: {
+            const auto range = cmd.dw1.range;
+            if (range == 31) {
+                // CMD_CFGI_ALL is an alias of CMD_CFGI_STE_RANGE with
+                // range = 31
+                DPRINTF(SMMUv3, "CMD_CFGI_ALL\n");
+                configCache.invalidateAll();
+
+                for (auto dev_interface : deviceInterfaces) {
+                    dev_interface->microTLB->invalidateAll();
+                    dev_interface->mainTLB->invalidateAll();
+                }
+            } else {
+                DPRINTF(SMMUv3, "CMD_CFGI_STE_RANGE\n");
+                const auto start_sid = cmd.dw0.sid & ~((1 << (range + 1)) - 1);
+                const auto end_sid = start_sid + (1 << (range + 1)) - 1;
+                for (auto sid = start_sid; sid <= end_sid; sid++) {
+                    configCache.invalidateSID(sid);
+
+                    for (auto dev_interface : deviceInterfaces) {
+                        dev_interface->microTLB->invalidateSID(sid);
+                        dev_interface->mainTLB->invalidateSID(sid);
+                    }
+                }
+            }
             break;
+        }
 
-        case CMD_INV_ALL:
-            DPRINTF(SMMUv3, "CMD_INV_ALL\n");
-            configCache.invalidateAll();
+        case CMD_CFGI_CD: {
+            DPRINTF(SMMUv3, "CMD_CFGI_CD sid=%#x ssid=%#x\n",
+                    cmd.dw0.sid, cmd.dw0.ssid);
+            configCache.invalidateSSID(cmd.dw0.sid, cmd.dw0.ssid);
+
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateSSID(
+                    cmd.dw0.sid, cmd.dw0.ssid);
+                dev_interface->mainTLB->invalidateSSID(
+                    cmd.dw0.sid, cmd.dw0.ssid);
+            }
             break;
+        }
 
-        case CMD_TLBI_ALL:
-            DPRINTF(SMMUv3, "CMD_TLBI_ALL\n");
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateAll();
-                slave_interface->mainTLB->invalidateAll();
+        case CMD_CFGI_CD_ALL: {
+            DPRINTF(SMMUv3, "CMD_CFGI_CD_ALL sid=%#x\n", cmd.dw0.sid);
+            configCache.invalidateSID(cmd.dw0.sid);
+
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateSID(cmd.dw0.sid);
+                dev_interface->mainTLB->invalidateSID(cmd.dw0.sid);
+            }
+            break;
+        }
+
+        case CMD_TLBI_NH_ALL: {
+            DPRINTF(SMMUv3, "CMD_TLBI_NH_ALL vmid=%#x\n", cmd.dw0.vmid);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateVMID(cmd.dw0.vmid);
+                dev_interface->mainTLB->invalidateVMID(cmd.dw0.vmid);
+            }
+            tlb.invalidateVMID(cmd.dw0.vmid);
+            walkCache.invalidateVMID(cmd.dw0.vmid);
+            break;
+        }
+
+        case CMD_TLBI_NH_ASID: {
+            DPRINTF(SMMUv3, "CMD_TLBI_NH_ASID asid=%#x vmid=%#x\n",
+                    cmd.dw0.asid, cmd.dw0.vmid);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateASID(
+                    cmd.dw0.asid, cmd.dw0.vmid);
+                dev_interface->mainTLB->invalidateASID(
+                    cmd.dw0.asid, cmd.dw0.vmid);
+            }
+            tlb.invalidateASID(cmd.dw0.asid, cmd.dw0.vmid);
+            walkCache.invalidateASID(cmd.dw0.asid, cmd.dw0.vmid);
+            break;
+        }
+
+        case CMD_TLBI_NH_VAA: {
+            const Addr addr = cmd.addr();
+            DPRINTF(SMMUv3, "CMD_TLBI_NH_VAA va=%#08x vmid=%#x\n",
+                    addr, cmd.dw0.vmid);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateVAA(
+                    addr, cmd.dw0.vmid);
+                dev_interface->mainTLB->invalidateVAA(
+                    addr, cmd.dw0.vmid);
+            }
+            tlb.invalidateVAA(addr, cmd.dw0.vmid);
+            const bool leaf_only = cmd.dw1.leaf ? true : false;
+            walkCache.invalidateVAA(addr, cmd.dw0.vmid, leaf_only);
+            break;
+        }
+
+        case CMD_TLBI_NH_VA: {
+            const Addr addr = cmd.addr();
+            DPRINTF(SMMUv3, "CMD_TLBI_NH_VA va=%#08x asid=%#x vmid=%#x\n",
+                    addr, cmd.dw0.asid, cmd.dw0.vmid);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateVA(
+                    addr, cmd.dw0.asid, cmd.dw0.vmid);
+                dev_interface->mainTLB->invalidateVA(
+                    addr, cmd.dw0.asid, cmd.dw0.vmid);
+            }
+            tlb.invalidateVA(addr, cmd.dw0.asid, cmd.dw0.vmid);
+            const bool leaf_only = cmd.dw1.leaf ? true : false;
+            walkCache.invalidateVA(addr, cmd.dw0.asid, cmd.dw0.vmid,
+                                   leaf_only);
+            break;
+        }
+
+        case CMD_TLBI_S2_IPA: {
+            const Addr addr = cmd.addr();
+            DPRINTF(SMMUv3, "CMD_TLBI_S2_IPA ipa=%#08x vmid=%#x\n",
+                    addr, cmd.dw0.vmid);
+            // This does not invalidate TLBs containing
+            // combined Stage1 + Stage2 translations, as per the spec.
+            ipaCache.invalidateIPA(addr, cmd.dw0.vmid);
+
+            if (!cmd.dw1.leaf)
+                walkCache.invalidateVMID(cmd.dw0.vmid);
+            break;
+        }
+
+        case CMD_TLBI_S12_VMALL: {
+            DPRINTF(SMMUv3, "CMD_TLBI_S12_VMALL vmid=%#x\n", cmd.dw0.vmid);
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateVMID(cmd.dw0.vmid);
+                dev_interface->mainTLB->invalidateVMID(cmd.dw0.vmid);
+            }
+            tlb.invalidateVMID(cmd.dw0.vmid);
+            ipaCache.invalidateVMID(cmd.dw0.vmid);
+            walkCache.invalidateVMID(cmd.dw0.vmid);
+            break;
+        }
+
+        case CMD_TLBI_NSNH_ALL: {
+            DPRINTF(SMMUv3, "CMD_TLBI_NSNH_ALL\n");
+            for (auto dev_interface : deviceInterfaces) {
+                dev_interface->microTLB->invalidateAll();
+                dev_interface->mainTLB->invalidateAll();
             }
             tlb.invalidateAll();
             ipaCache.invalidateAll();
             walkCache.invalidateAll();
             break;
+        }
 
-        case CMD_TLBI_ASID:
-            DPRINTF(SMMUv3, "CMD_TLBI_ASID asid=%#x vmid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateASID(
-                    cmd.data[0], cmd.data[1]);
-                slave_interface->mainTLB->invalidateASID(
-                    cmd.data[0], cmd.data[1]);
-            }
-            tlb.invalidateASID(cmd.data[0], cmd.data[1]);
-            walkCache.invalidateASID(cmd.data[0], cmd.data[1]);
-            break;
-
-        case CMD_TLBI_VAAL:
-            DPRINTF(SMMUv3, "CMD_TLBI_VAAL va=%#08x vmid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateVAA(
-                    cmd.data[0], cmd.data[1]);
-                slave_interface->mainTLB->invalidateVAA(
-                    cmd.data[0], cmd.data[1]);
-            }
-            tlb.invalidateVAA(cmd.data[0], cmd.data[1]);
-            break;
-
-        case CMD_TLBI_VAA:
-            DPRINTF(SMMUv3, "CMD_TLBI_VAA va=%#08x vmid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateVAA(
-                    cmd.data[0], cmd.data[1]);
-                slave_interface->mainTLB->invalidateVAA(
-                    cmd.data[0], cmd.data[1]);
-            }
-            tlb.invalidateVAA(cmd.data[0], cmd.data[1]);
-            walkCache.invalidateVAA(cmd.data[0], cmd.data[1]);
-            break;
-
-        case CMD_TLBI_VAL:
-            DPRINTF(SMMUv3, "CMD_TLBI_VAL va=%#08x asid=%#x vmid=%#x\n",
-                cmd.data[0], cmd.data[1], cmd.data[2]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateVA(
-                    cmd.data[0], cmd.data[1], cmd.data[2]);
-                slave_interface->mainTLB->invalidateVA(
-                    cmd.data[0], cmd.data[1], cmd.data[2]);
-            }
-            tlb.invalidateVA(cmd.data[0], cmd.data[1], cmd.data[2]);
-            break;
-
-        case CMD_TLBI_VA:
-            DPRINTF(SMMUv3, "CMD_TLBI_VA va=%#08x asid=%#x vmid=%#x\n",
-                cmd.data[0], cmd.data[1], cmd.data[2]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateVA(
-                    cmd.data[0], cmd.data[1], cmd.data[2]);
-                slave_interface->mainTLB->invalidateVA(
-                    cmd.data[0], cmd.data[1], cmd.data[2]);
-            }
-            tlb.invalidateVA(cmd.data[0], cmd.data[1], cmd.data[2]);
-            walkCache.invalidateVA(cmd.data[0], cmd.data[1], cmd.data[2]);
-            break;
-
-        case CMD_TLBI_VM_IPAL:
-            DPRINTF(SMMUv3, "CMD_TLBI_VM_IPAL ipa=%#08x vmid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            // This does not invalidate TLBs containing
-            // combined Stage1 + Stage2 translations, as per the spec.
-            ipaCache.invalidateIPA(cmd.data[0], cmd.data[1]);
-            walkCache.invalidateVMID(cmd.data[1]);
-            break;
-
-        case CMD_TLBI_VM_IPA:
-            DPRINTF(SMMUv3, "CMD_TLBI_VM_IPA ipa=%#08x vmid=%#x\n",
-                cmd.data[0], cmd.data[1]);
-            // This does not invalidate TLBs containing
-            // combined Stage1 + Stage2 translations, as per the spec.
-            ipaCache.invalidateIPA(cmd.data[0], cmd.data[1]);
-            walkCache.invalidateVMID(cmd.data[1]);
-            break;
-
-        case CMD_TLBI_VM_S12:
-            DPRINTF(SMMUv3, "CMD_TLBI_VM_S12 vmid=%#x\n", cmd.data[0]);
-            for (auto slave_interface : slaveInterfaces) {
-                slave_interface->microTLB->invalidateVMID(cmd.data[0]);
-                slave_interface->mainTLB->invalidateVMID(cmd.data[0]);
-            }
-            tlb.invalidateVMID(cmd.data[0]);
-            ipaCache.invalidateVMID(cmd.data[0]);
-            walkCache.invalidateVMID(cmd.data[0]);
-            break;
-
-        case CMD_RESUME_S:
-            DPRINTF(SMMUv3, "CMD_RESUME_S\n");
+        case CMD_RESUME:
+            DPRINTF(SMMUv3, "CMD_RESUME\n");
             panic("resume unimplemented");
             break;
 
         default:
-            warn("Unimplemented command %#x\n", cmd.type);
+            warn("Unimplemented command %#x\n", cmd.dw0.type);
             break;
     }
 }
@@ -531,10 +565,12 @@ const PageTableOps*
 SMMUv3::getPageTableOps(uint8_t trans_granule)
 {
     static V8PageTableOps4k  ptOps4k;
+    static V8PageTableOps16k ptOps16k;
     static V8PageTableOps64k ptOps64k;
 
     switch (trans_granule) {
     case TRANS_GRANULE_4K:  return &ptOps4k;
+    case TRANS_GRANULE_16K: return &ptOps16k;
     case TRANS_GRANULE_64K: return &ptOps64k;
     default:
         panic("Unknown translation granule size %d", trans_granule);
@@ -602,6 +638,16 @@ SMMUv3::writeControl(PacketPtr pkt)
                 pkt->getLE<uint32_t>();
             break;
 
+        case offsetof(SMMURegs, cmdq_cons):
+            assert(pkt->getSize() == sizeof(uint32_t));
+            if (regs.cr0 & CR0_CMDQEN_MASK) {
+                warn("CMDQ is enabled: ignoring write to CMDQ_CONS\n");
+            } else {
+                *reinterpret_cast<uint32_t *>(regs.data + offset) =
+                    pkt->getLE<uint32_t>();
+            }
+            break;
+
         case offsetof(SMMURegs, cmdq_prod):
             assert(pkt->getSize() == sizeof(uint32_t));
             *reinterpret_cast<uint32_t *>(regs.data + offset) =
@@ -618,12 +664,15 @@ SMMUv3::writeControl(PacketPtr pkt)
 
         case offsetof(SMMURegs, cmdq_base):
             assert(pkt->getSize() == sizeof(uint64_t));
-            *reinterpret_cast<uint64_t *>(regs.data + offset) =
-                pkt->getLE<uint64_t>();
-            regs.cmdq_cons = 0;
-            regs.cmdq_prod = 0;
+            if (regs.cr0 & CR0_CMDQEN_MASK) {
+                warn("CMDQ is enabled: ignoring write to CMDQ_BASE\n");
+            } else {
+                *reinterpret_cast<uint64_t *>(regs.data + offset) =
+                    pkt->getLE<uint64_t>();
+                regs.cmdq_cons = 0;
+                regs.cmdq_prod = 0;
+            }
             break;
-
 
         case offsetof(SMMURegs, eventq_base):
             assert(pkt->getSize() == sizeof(uint64_t));
@@ -669,16 +718,16 @@ void
 SMMUv3::init()
 {
     // make sure both sides are connected and have the same block size
-    if (!masterPort.isConnected())
-        fatal("Master port is not connected.\n");
+    if (!requestPort.isConnected())
+        fatal("Request port is not connected.\n");
 
-    // If the second master port is connected for the table walks, enable
+    // If the second request port is connected for the table walks, enable
     // the mode to send table walks through this port instead
-    if (masterTableWalkPort.isConnected())
+    if (tableWalkPort.isConnected())
         tableWalkPortEnable = true;
 
-    // notify the master side  of our address ranges
-    for (auto ifc : slaveInterfaces) {
+    // notify the request side  of our address ranges
+    for (auto ifc : deviceInterfaces) {
         ifc->sendRange();
     }
 
@@ -689,14 +738,14 @@ SMMUv3::init()
 void
 SMMUv3::regStats()
 {
-    MemObject::regStats();
+    ClockedObject::regStats();
 
     using namespace Stats;
 
-    for (size_t i = 0; i < slaveInterfaces.size(); i++) {
-        slaveInterfaces[i]->microTLB->regStats(
+    for (size_t i = 0; i < deviceInterfaces.size(); i++) {
+        deviceInterfaces[i]->microTLB->regStats(
             csprintf("%s.utlb%d", name(), i));
-        slaveInterfaces[i]->mainTLB->regStats(
+        deviceInterfaces[i]->mainTLB->regStats(
             csprintf("%s.maintlb%d", name(), i));
     }
 
@@ -741,7 +790,11 @@ SMMUv3::regStats()
 DrainState
 SMMUv3::drain()
 {
-    panic("SMMUv3 doesn't support draining\n");
+    // Wait until the Command Executor is not busy
+    if (commandExecutor.isBusy()) {
+        return DrainState::Draining;
+    }
+    return DrainState::Drained;
 }
 
 void
@@ -763,14 +816,14 @@ SMMUv3::unserialize(CheckpointIn &cp)
 Port&
 SMMUv3::getPort(const std::string &name, PortID id)
 {
-    if (name == "master") {
-        return masterPort;
-    } else if (name == "master_walker") {
-        return masterTableWalkPort;
+    if (name == "request") {
+        return requestPort;
+    } else if (name == "walker") {
+        return tableWalkPort;
     } else if (name == "control") {
         return controlPort;
     } else {
-        return MemObject::getPort(name, id);
+        return ClockedObject::getPort(name, id);
     }
 }
 

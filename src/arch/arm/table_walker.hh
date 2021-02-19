@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2016 ARM Limited
+ * Copyright (c) 2010-2016, 2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Giacomo Gabrielli
  */
 
 #ifndef __ARCH_ARM_TABLE_WALKER_HH__
@@ -43,6 +40,7 @@
 
 #include <list>
 
+#include "arch/arm/faults.hh"
 #include "arch/arm/miscregs.hh"
 #include "arch/arm/system.hh"
 #include "arch/arm/tlb.hh"
@@ -231,7 +229,7 @@ class TableWalker : public ClockedObject
          */
         bool secure(bool have_security, WalkerState *currState) const
         {
-            if (have_security) {
+            if (have_security && currState->secureLookup) {
                 if (type() == PageTable)
                     return !bits(data, 3);
                 else
@@ -755,6 +753,9 @@ class TableWalker : public ClockedObject
         /** If the access comes from the secure state. */
         bool isSecure;
 
+        /** True if table walks are uncacheable (for table descriptors) */
+        bool isUncacheable;
+
         /** Helper variables used to implement hierarchical access permissions
          * when the long-desc. format is used (LPAE only) */
         bool secureLookup;
@@ -762,6 +763,9 @@ class TableWalker : public ClockedObject
         bool userTable;
         bool xnTable;
         bool pxnTable;
+
+        /** Hierarchical access permission disable */
+        bool hpd;
 
         /** Flag indicating if a second stage of lookup is required */
         bool stage2Req;
@@ -825,8 +829,8 @@ class TableWalker : public ClockedObject
     /** Port shared by the two table walkers. */
     DmaPort* port;
 
-    /** Master id assigned by the MMU. */
-    MasterID masterId;
+    /** Requestor id assigned by the MMU. */
+    RequestorID requestorId;
 
     /** Indicates whether this table walker is part of the stage 2 mmu */
     const bool isStage2;
@@ -854,18 +858,21 @@ class TableWalker : public ClockedObject
     bool _haveLargeAsid64;
 
     /** Statistics */
-    Stats::Scalar statWalks;
-    Stats::Scalar statWalksShortDescriptor;
-    Stats::Scalar statWalksLongDescriptor;
-    Stats::Vector statWalksShortTerminatedAtLevel;
-    Stats::Vector statWalksLongTerminatedAtLevel;
-    Stats::Scalar statSquashedBefore;
-    Stats::Scalar statSquashedAfter;
-    Stats::Histogram statWalkWaitTime;
-    Stats::Histogram statWalkServiceTime;
-    Stats::Histogram statPendingWalks; // essentially "L" of queueing theory
-    Stats::Vector statPageSizes;
-    Stats::Vector2d statRequestOrigin;
+   struct TableWalkerStats : public Stats::Group {
+        TableWalkerStats(Stats::Group *parent);
+        Stats::Scalar walks;
+        Stats::Scalar walksShortDescriptor;
+        Stats::Scalar walksLongDescriptor;
+        Stats::Vector walksShortTerminatedAtLevel;
+        Stats::Vector walksLongTerminatedAtLevel;
+        Stats::Scalar squashedBefore;
+        Stats::Scalar squashedAfter;
+        Stats::Histogram walkWaitTime;
+        Stats::Histogram walkServiceTime;
+        Stats::Histogram pendingWalks; // essentially "L" of queueing theory
+        Stats::Vector pageSizes;
+        Stats::Vector2d requestOrigin;
+    } stats;
 
     mutable unsigned pendingReqs;
     mutable Tick pendingChangeTick;
@@ -897,8 +904,6 @@ class TableWalker : public ClockedObject
     Port &getPort(const std::string &if_name,
                   PortID idx=InvalidPortID) override;
 
-    void regStats() override;
-
     Fault walk(const RequestPtr &req, ThreadContext *tc,
                uint16_t asid, uint8_t _vmid,
                bool _isHyp, TLB::Mode mode, TLB::Translation *_trans,
@@ -907,7 +912,7 @@ class TableWalker : public ClockedObject
 
     void setTlb(TLB *_tlb) { tlb = _tlb; }
     TLB* getTlb() { return tlb; }
-    void setMMU(Stage2MMU *m, MasterID master_id);
+    void setMMU(Stage2MMU *m, RequestorID requestor_id);
     void memAttrs(ThreadContext *tc, TlbEntry &te, SCTLR sctlr,
                   uint8_t texcb, bool s);
     void memAttrsLPAE(ThreadContext *tc, TlbEntry &te,
@@ -944,6 +949,8 @@ class TableWalker : public ClockedObject
     bool fetchDescriptor(Addr descAddr, uint8_t *data, int numBytes,
         Request::Flags flags, int queueIndex, Event *event,
         void (TableWalker::*doDescriptor)());
+
+    Fault generateLongDescFault(ArmFault::FaultSource src);
 
     void insertTableEntry(DescriptorBase &descriptor, bool longDescriptor);
 

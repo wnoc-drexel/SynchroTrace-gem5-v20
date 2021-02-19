@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012, 2014, 2017-2018 ARM Limited
+ * Copyright (c) 2011-2012, 2014, 2017-2019 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Korey Sewell
  */
 
 #ifndef __CPU_O3_LSQ_IMPL_HH__
@@ -49,9 +47,11 @@
 #include <string>
 
 #include "base/logging.hh"
+#include "cpu/o3/cpu.hh"
 #include "cpu/o3/lsq.hh"
 #include "debug/Drain.hh"
 #include "debug/Fetch.hh"
+#include "debug/HtmCpu.hh"
 #include "debug/LSQ.hh"
 #include "debug/Writeback.hh"
 #include "params/DerivO3CPU.hh"
@@ -71,6 +71,7 @@ LSQ<Impl>::LSQ(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params)
                   params->smtLSQThreshold)),
       maxSQEntries(maxLSQAllocation(lsqPolicy, SQEntries, params->numThreads,
                   params->smtLSQThreshold)),
+      dcachePort(this, cpu_ptr),
       numThreads(params->numThreads)
 {
     assert(numThreads > 0 && numThreads <= Impl::MaxThreads);
@@ -103,7 +104,7 @@ LSQ<Impl>::LSQ(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params)
     for (ThreadID tid = 0; tid < numThreads; tid++) {
         thread.emplace_back(maxLQEntries, maxSQEntries);
         thread[tid].init(cpu, iew_ptr, params, this, tid);
-        thread[tid].setDcachePort(&cpu_ptr->getDataPort());
+        thread[tid].setDcachePort(&dcachePort);
     }
 }
 
@@ -113,16 +114,6 @@ std::string
 LSQ<Impl>::name() const
 {
     return iewStage->name() + ".lsq";
-}
-
-template<class Impl>
-void
-LSQ<Impl>::regStats()
-{
-    //Initialize LSQs
-    for (ThreadID tid = 0; tid < numThreads; tid++) {
-        thread[tid].regStats();
-    }
 }
 
 template<class Impl>
@@ -685,8 +676,8 @@ template<class Impl>
 Fault
 LSQ<Impl>::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                        unsigned int size, Addr addr, Request::Flags flags,
-                       uint64_t *res, AtomicOpFunctor *amo_op,
-                       const std::vector<bool>& byteEnable)
+                       uint64_t *res, AtomicOpFunctorPtr amo_op,
+                       const std::vector<bool>& byte_enable)
 {
     // This comming request can be either load, store or atomic.
     // Atomic request has a corresponding pointer to its atomic memory
@@ -706,30 +697,40 @@ LSQ<Impl>::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
     // lines. For now, such cross-line update is not supported.
     assert(!isAtomic || (isAtomic && !needs_burst));
 
+    const bool htm_cmd = isLoad && (flags & Request::HTM_CMD);
+
     if (inst->translationStarted()) {
         req = inst->savedReq;
         assert(req);
     } else {
-        if (needs_burst) {
+        if (htm_cmd) {
+            assert(addr == 0x0lu);
+            assert(size == 8);
+            req = new HtmCmdRequest(&thread[tid], inst, flags);
+        } else if (needs_burst) {
             req = new SplitDataRequest(&thread[tid], inst, isLoad, addr,
                     size, flags, data, res);
         } else {
             req = new SingleDataRequest(&thread[tid], inst, isLoad, addr,
-                    size, flags, data, res, amo_op);
+                    size, flags, data, res, std::move(amo_op));
         }
         assert(req);
-        if (!byteEnable.empty()) {
-            req->_byteEnable = byteEnable;
+        if (!byte_enable.empty()) {
+            req->_byteEnable = byte_enable;
         }
         inst->setRequest();
         req->taskId(cpu->taskId());
+
+        // There might be fault from a previous execution attempt if this is
+        // a strictly ordered load
+        inst->getFault() = NoFault;
 
         req->initiateTranslation();
     }
 
     /* This is the place were instructions get the effAddr. */
     if (req->isTranslationComplete()) {
-        if (inst->getFault() == NoFault) {
+        if (req->isMemAccessRequired()) {
             inst->effAddr = req->getVaddr();
             inst->effSize = size;
             inst->effAddrValid(true);
@@ -737,10 +738,17 @@ LSQ<Impl>::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
             if (cpu->checker) {
                 inst->reqToVerify = std::make_shared<Request>(*req->request());
             }
+            Fault fault;
             if (isLoad)
-                inst->getFault() = cpu->read(req, inst->lqIdx);
+                fault = cpu->read(req, inst->lqIdx);
             else
-                inst->getFault() = cpu->write(req, data, inst->sqIdx);
+                fault = cpu->write(req, data, inst->sqIdx);
+            // inst->getFault() may have the first-fault of a
+            // multi-access split request at this point.
+            // Overwrite that only if we got another type of fault
+            // (e.g. re-exec).
+            if (fault != NoFault)
+                inst->getFault() = fault;
         } else if (isLoad) {
             inst->setMemAccPredicate(false);
             // Commit will have to clean up whatever happened.  Set this
@@ -793,13 +801,16 @@ void
 LSQ<Impl>::SplitDataRequest::finish(const Fault &fault, const RequestPtr &req,
         ThreadContext* tc, BaseTLB::Mode mode)
 {
-    _fault.push_back(fault);
-    assert(req == _requests[numTranslatedFragments] || this->isDelayed());
+    int i;
+    for (i = 0; i < _requests.size() && _requests[i] != req; i++);
+    assert(i < _requests.size());
+    _fault[i] = fault;
 
     numInTranslationFragments--;
     numTranslatedFragments++;
 
-    mainReq->setFlags(req->getFlags());
+    if (fault == NoFault)
+        mainReq->setFlags(req->getFlags());
 
     if (numTranslatedFragments == _requests.size()) {
         if (_inst->isSquashed()) {
@@ -807,27 +818,30 @@ LSQ<Impl>::SplitDataRequest::finish(const Fault &fault, const RequestPtr &req,
         } else {
             _inst->strictlyOrdered(mainReq->isStrictlyOrdered());
             flags.set(Flag::TranslationFinished);
-            auto fault_it = _fault.begin();
-            /* Ffwd to the first NoFault. */
-            while (fault_it != _fault.end() && *fault_it == NoFault)
-                fault_it++;
-            /* If none of the fragments faulted: */
-            if (fault_it == _fault.end()) {
-                _inst->physEffAddr = request(0)->getPaddr();
+            _inst->translationCompleted(true);
 
+            for (i = 0; i < _fault.size() && _fault[i] == NoFault; i++);
+            if (i > 0) {
+                _inst->physEffAddr = request(0)->getPaddr();
                 _inst->memReqFlags = mainReq->getFlags();
                 if (mainReq->isCondSwap()) {
+                    assert (i == _fault.size());
                     assert(_res);
                     mainReq->setExtraData(*_res);
                 }
-                setState(State::Request);
-                _inst->fault = NoFault;
+                if (i == _fault.size()) {
+                    _inst->fault = NoFault;
+                    setState(State::Request);
+                } else {
+                  _inst->fault = _fault[i];
+                  setState(State::PartialFault);
+                }
             } else {
+                _inst->fault = _fault[0];
                 setState(State::Fault);
-                _inst->fault = *fault_it;
             }
-            _inst->translationCompleted(true);
         }
+
     }
 }
 
@@ -877,8 +891,8 @@ LSQ<Impl>::SplitDataRequest::initiateTranslation()
     Addr final_addr = addrBlockAlign(_addr + _size, cacheLineSize);
     uint32_t size_so_far = 0;
 
-    mainReq = std::make_shared<Request>(_inst->getASID(), base_addr,
-                _size, _flags, _inst->masterId(),
+    mainReq = std::make_shared<Request>(base_addr,
+                _size, _flags, _inst->requestorId(),
                 _inst->instAddr(), _inst->contextId());
     if (!_byteEnable.empty()) {
         mainReq->setByteEnable(_byteEnable);
@@ -968,7 +982,6 @@ LSQ<Impl>::SingleDataRequest::recvTimingResp(PacketPtr pkt)
 {
     assert(_numOutstandingPackets == 1);
     auto state = dynamic_cast<LSQSenderState*>(pkt->senderState);
-    setState(State::Complete);
     flags.set(Flag::Complete);
     state->outstanding--;
     assert(pkt == _packets.front());
@@ -988,7 +1001,6 @@ LSQ<Impl>::SplitDataRequest::recvTimingResp(PacketPtr pkt)
     numReceivedPackets++;
     state->outstanding--;
     if (numReceivedPackets == _packets.size()) {
-        setState(State::Complete);
         flags.set(Flag::Complete);
         /* Assemble packets. */
         PacketPtr resp = isLoad()
@@ -1018,6 +1030,23 @@ LSQ<Impl>::SingleDataRequest::buildPackets()
                     :  Packet::createWrite(request()));
         _packets.back()->dataStatic(_inst->memData);
         _packets.back()->senderState = _senderState;
+
+        // hardware transactional memory
+        // If request originates in a transaction (not necessarily a HtmCmd),
+        // then the packet should be marked as such.
+        if (_inst->inHtmTransactionalState()) {
+            _packets.back()->setHtmTransactional(
+                _inst->getHtmTransactionUid());
+
+            DPRINTF(HtmCpu,
+              "HTM %s pc=0x%lx - vaddr=0x%lx - paddr=0x%lx - htmUid=%u\n",
+              isLoad() ? "LD" : "ST",
+              _inst->instAddr(),
+              _packets.back()->req->hasVaddr() ?
+                  _packets.back()->req->getVaddr() : 0lu,
+              _packets.back()->getAddr(),
+              _inst->getHtmTransactionUid());
+        }
     }
     assert(_packets.size() == 1);
 }
@@ -1034,6 +1063,21 @@ LSQ<Impl>::SplitDataRequest::buildPackets()
         if (isLoad()) {
             _mainPacket = Packet::createRead(mainReq);
             _mainPacket->dataStatic(_inst->memData);
+
+            // hardware transactional memory
+            // If request originates in a transaction,
+            // packet should be marked as such
+            if (_inst->inHtmTransactionalState()) {
+                _mainPacket->setHtmTransactional(
+                    _inst->getHtmTransactionUid());
+                DPRINTF(HtmCpu,
+                  "HTM LD.0 pc=0x%lx-vaddr=0x%lx-paddr=0x%lx-htmUid=%u\n",
+                  _inst->instAddr(),
+                  _mainPacket->req->hasVaddr() ?
+                      _mainPacket->req->getVaddr() : 0lu,
+                  _mainPacket->getAddr(),
+                  _inst->getHtmTransactionUid());
+            }
         }
         for (int i = 0; i < _requests.size() && _fault[i] == NoFault; i++) {
             RequestPtr r = _requests[i];
@@ -1051,6 +1095,23 @@ LSQ<Impl>::SplitDataRequest::buildPackets()
             }
             pkt->senderState = _senderState;
             _packets.push_back(pkt);
+
+            // hardware transactional memory
+            // If request originates in a transaction,
+            // packet should be marked as such
+            if (_inst->inHtmTransactionalState()) {
+                _packets.back()->setHtmTransactional(
+                    _inst->getHtmTransactionUid());
+                DPRINTF(HtmCpu,
+                  "HTM %s.%d pc=0x%lx-vaddr=0x%lx-paddr=0x%lx-htmUid=%u\n",
+                  isLoad() ? "LD" : "ST",
+                  i+1,
+                  _inst->instAddr(),
+                  _packets.back()->req->hasVaddr() ?
+                      _packets.back()->req->getVaddr() : 0lu,
+                  _packets.back()->getAddr(),
+                  _inst->getHtmTransactionUid());
+            }
         }
     }
     assert(_packets.size() > 0);
@@ -1078,48 +1139,26 @@ LSQ<Impl>::SplitDataRequest::sendPacketToCache()
 }
 
 template<class Impl>
-void
-LSQ<Impl>::SingleDataRequest::handleIprWrite(ThreadContext *thread,
-                                             PacketPtr pkt)
+Cycles
+LSQ<Impl>::SingleDataRequest::handleLocalAccess(
+        ThreadContext *thread, PacketPtr pkt)
 {
-    TheISA::handleIprWrite(thread, pkt);
-}
-
-template<class Impl>
-void
-LSQ<Impl>::SplitDataRequest::handleIprWrite(ThreadContext *thread,
-                                            PacketPtr mainPkt)
-{
-    unsigned offset = 0;
-    for (auto r: _requests) {
-        PacketPtr pkt = new Packet(r, MemCmd::WriteReq);
-        pkt->dataStatic(mainPkt->getPtr<uint8_t>() + offset);
-        TheISA::handleIprWrite(thread, pkt);
-        offset += r->getSize();
-        delete pkt;
-    }
+    return pkt->req->localAccessor(thread, pkt);
 }
 
 template<class Impl>
 Cycles
-LSQ<Impl>::SingleDataRequest::handleIprRead(ThreadContext *thread,
-                                            PacketPtr pkt)
-{
-    return TheISA::handleIprRead(thread, pkt);
-}
-
-template<class Impl>
-Cycles
-LSQ<Impl>::SplitDataRequest::handleIprRead(ThreadContext *thread,
-                                           PacketPtr mainPkt)
+LSQ<Impl>::SplitDataRequest::handleLocalAccess(
+        ThreadContext *thread, PacketPtr mainPkt)
 {
     Cycles delay(0);
     unsigned offset = 0;
 
     for (auto r: _requests) {
-        PacketPtr pkt = new Packet(r, MemCmd::ReadReq);
+        PacketPtr pkt =
+            new Packet(r, isLoad() ? MemCmd::ReadReq : MemCmd::WriteReq);
         pkt->dataStatic(mainPkt->getPtr<uint8_t>() + offset);
-        Cycles d = TheISA::handleIprRead(thread, pkt);
+        Cycles d = r->localAccessor(thread, pkt);
         if (d > delay)
             delay = d;
         offset += r->getSize();
@@ -1135,18 +1174,123 @@ LSQ<Impl>::SingleDataRequest::isCacheBlockHit(Addr blockAddr, Addr blockMask)
     return ( (LSQRequest::_requests[0]->getPaddr() & blockMask) == blockAddr);
 }
 
+/**
+ * Caches may probe into the load-store queue to enforce memory ordering
+ * guarantees. This method supports probes by providing a mechanism to compare
+ * snoop messages with requests tracked by the load-store queue.
+ *
+ * Consistency models must enforce ordering constraints. TSO, for instance,
+ * must prevent memory reorderings except stores which are reordered after
+ * loads. The reordering restrictions negatively impact performance by
+ * cutting down on memory level parallelism. However, the core can regain
+ * performance by generating speculative loads. Speculative loads may issue
+ * without affecting correctness if precautions are taken to handle invalid
+ * memory orders. The load queue must squash under memory model violations.
+ * Memory model violations may occur when block ownership is granted to
+ * another core or the block cannot be accurately monitored by the load queue.
+ */
 template<class Impl>
 bool
 LSQ<Impl>::SplitDataRequest::isCacheBlockHit(Addr blockAddr, Addr blockMask)
 {
     bool is_hit = false;
     for (auto &r: _requests) {
-        if ((r->getPaddr() & blockMask) == blockAddr) {
+       /**
+        * The load-store queue handles partial faults which complicates this
+        * method. Physical addresses must be compared between requests and
+        * snoops. Some requests will not have a valid physical address, since
+        * partial faults may have outstanding translations. Therefore, the
+        * existence of a valid request address must be checked before
+        * comparing block hits. We assume no pipeline squash is needed if a
+        * valid request address does not exist.
+        */
+        if (r->hasPaddr() && (r->getPaddr() & blockMask) == blockAddr) {
             is_hit = true;
             break;
         }
     }
     return is_hit;
+}
+
+template <class Impl>
+bool
+LSQ<Impl>::DcachePort::recvTimingResp(PacketPtr pkt)
+{
+    return lsq->recvTimingResp(pkt);
+}
+
+template <class Impl>
+void
+LSQ<Impl>::DcachePort::recvTimingSnoopReq(PacketPtr pkt)
+{
+    for (ThreadID tid = 0; tid < cpu->numThreads; tid++) {
+        if (cpu->getCpuAddrMonitor(tid)->doMonitor(pkt)) {
+            cpu->wakeup(tid);
+        }
+    }
+    lsq->recvTimingSnoopReq(pkt);
+}
+
+template <class Impl>
+void
+LSQ<Impl>::DcachePort::recvReqRetry()
+{
+    lsq->recvReqRetry();
+}
+
+template<class Impl>
+LSQ<Impl>::HtmCmdRequest::HtmCmdRequest(LSQUnit* port,
+                  const DynInstPtr& inst,
+                  const Request::Flags& flags_) :
+    SingleDataRequest(port, inst, true, 0x0lu, 8, flags_,
+        nullptr, nullptr, nullptr)
+{
+    assert(_requests.size() == 0);
+
+    this->addRequest(_addr, _size, _byteEnable);
+
+    if (_requests.size() > 0) {
+        _requests.back()->setReqInstSeqNum(_inst->seqNum);
+        _requests.back()->taskId(_taskId);
+        _requests.back()->setPaddr(_addr);
+        _requests.back()->setInstCount(_inst->getCpuPtr()->totalInsts());
+
+        _inst->strictlyOrdered(_requests.back()->isStrictlyOrdered());
+        _inst->fault = NoFault;
+        _inst->physEffAddr = _requests.back()->getPaddr();
+        _inst->memReqFlags = _requests.back()->getFlags();
+        _inst->savedReq = this;
+
+        setState(State::Translation);
+    } else {
+        panic("unexpected behaviour");
+    }
+}
+
+template<class Impl>
+void
+LSQ<Impl>::HtmCmdRequest::initiateTranslation()
+{
+    // Transaction commands are implemented as loads to avoid significant
+    // changes to the cpu and memory interfaces
+    // The virtual and physical address uses a dummy value of 0x00
+    // Address translation does not really occur thus the code below
+
+    flags.set(Flag::TranslationStarted);
+    flags.set(Flag::TranslationFinished);
+
+    _inst->translationStarted(true);
+    _inst->translationCompleted(true);
+
+    setState(State::Request);
+}
+
+template<class Impl>
+void
+LSQ<Impl>::HtmCmdRequest::finish(const Fault &fault, const RequestPtr &req,
+        ThreadContext* tc, BaseTLB::Mode mode)
+{
+    panic("unexpected behaviour");
 }
 
 #endif//__CPU_O3_LSQ_IMPL_HH__

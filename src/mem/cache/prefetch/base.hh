@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Mitch Hayenga
  */
 
 /**
@@ -51,7 +48,6 @@
 
 #include <cstdint>
 
-#include "arch/isa_traits.hh"
 #include "arch/generic/tlb.hh"
 #include "base/statistics.hh"
 #include "base/types.hh"
@@ -64,19 +60,21 @@
 class BaseCache;
 struct BasePrefetcherParams;
 
-class BasePrefetcher : public ClockedObject
+namespace Prefetcher {
+
+class Base : public ClockedObject
 {
     class PrefetchListener : public ProbeListenerArgBase<PacketPtr>
     {
       public:
-        PrefetchListener(BasePrefetcher &_parent, ProbeManager *pm,
+        PrefetchListener(Base &_parent, ProbeManager *pm,
                          const std::string &name, bool _isFill = false,
                          bool _miss = false)
             : ProbeListenerArgBase(pm, name),
               parent(_parent), isFill(_isFill), miss(_miss) {}
         void notify(const PacketPtr &pkt) override;
       protected:
-        BasePrefetcher &parent;
+        Base &parent;
         const bool isFill;
         const bool miss;
     };
@@ -95,7 +93,7 @@ class BasePrefetcher : public ClockedObject
         /** The program counter that generated this address. */
         Addr pc;
         /** The requestor ID that generated this address. */
-        MasterID masterId;
+        RequestorID requestorId;
         /** Validity bit for the PC of this address. */
         bool validPC;
         /** Whether this address targets the secure memory space. */
@@ -153,9 +151,9 @@ class BasePrefetcher : public ClockedObject
          * Gets the requestor ID that generated this address
          * @return the requestor ID that generated this address
          */
-        MasterID getMasterId() const
+        RequestorID getRequestorId() const
         {
-            return masterId;
+            return requestorId;
         }
 
         /**
@@ -208,10 +206,10 @@ class BasePrefetcher : public ClockedObject
                 panic("PrefetchInfo::get called with a request with no data.");
             }
             switch (endian) {
-                case BigEndianByteOrder:
+                case ByteOrder::big:
                     return betoh(*(T*)data);
 
-                case LittleEndianByteOrder:
+                case ByteOrder::little:
                     return letoh(*(T*)data);
 
                 default:
@@ -249,7 +247,7 @@ class BasePrefetcher : public ClockedObject
 
         ~PrefetchInfo()
         {
-            delete data;
+            delete[] data;
         }
     };
 
@@ -282,7 +280,7 @@ class BasePrefetcher : public ClockedObject
     const bool onInst;
 
     /** Request id for prefetches */
-    const MasterID masterId;
+    const RequestorID requestorId;
 
     const Addr pageBytes;
 
@@ -319,8 +317,11 @@ class BasePrefetcher : public ClockedObject
     Addr pageOffset(Addr a) const;
     /** Build the address of the i-th block inside the page */
     Addr pageIthBlockAddress(Addr page, uint32_t i) const;
-
-    Stats::Scalar pfIssued;
+    struct StatGroup : public Stats::Group
+    {
+        StatGroup(Stats::Group *parent);
+        Stats::Scalar pfIssued;
+    } prefetchStats;
 
     /** Total prefetches issued */
     uint64_t issuedPrefetches;
@@ -331,10 +332,8 @@ class BasePrefetcher : public ClockedObject
     BaseTLB * tlb;
 
   public:
-
-    BasePrefetcher(const BasePrefetcherParams *p);
-
-    virtual ~BasePrefetcher() {}
+    Base(const BasePrefetcherParams *p);
+    virtual ~Base() = default;
 
     virtual void setCache(BaseCache *_cache);
 
@@ -352,10 +351,6 @@ class BasePrefetcher : public ClockedObject
 
     virtual Tick nextPrefetchReadyTime() const = 0;
 
-    /**
-     * Register local statistics.
-     */
-    void regStats() override;
 
     /**
      * Register probe points for this object.
@@ -384,4 +379,7 @@ class BasePrefetcher : public ClockedObject
      */
     void addTLB(BaseTLB *tlb);
 };
+
+} // namespace Prefetcher
+
 #endif //__MEM_CACHE_PREFETCH_BASE_HH__

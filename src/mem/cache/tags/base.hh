@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014,2016-2018 ARM Limited
+ * Copyright (c) 2012-2014,2016-2019 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Ron Dreslinski
  */
 
 /**
@@ -102,58 +99,60 @@ class BaseTags : public ClockedObject
     /** The data blocks, 1 per cache block. */
     std::unique_ptr<uint8_t[]> dataBlks;
 
-    // Statistics
     /**
      * TODO: It would be good if these stats were acquired after warmup.
-     * @addtogroup CacheStatistics
-     * @{
      */
+    struct BaseTagStats : public Stats::Group
+    {
+        BaseTagStats(BaseTags &tags);
 
-    /** Per cycle average of the number of tags that hold valid data. */
-    Stats::Average tagsInUse;
+        void regStats() override;
+        void preDumpStats() override;
 
-    /** The total number of references to a block before it is replaced. */
-    Stats::Scalar totalRefs;
+        BaseTags &tags;
 
-    /**
-     * The number of reference counts sampled. This is different from
-     * replacements because we sample all the valid blocks when the simulator
-     * exits.
-     */
-    Stats::Scalar sampledRefs;
+        /** Per cycle average of the number of tags that hold valid data. */
+        Stats::Average tagsInUse;
 
-    /**
-     * Average number of references to a block before is was replaced.
-     * @todo This should change to an average stat once we have them.
-     */
-    Stats::Formula avgRefs;
+        /** The total number of references to a block before it is replaced. */
+        Stats::Scalar totalRefs;
 
-    /** The cycle that the warmup percentage was hit. 0 on failure. */
-    Stats::Scalar warmupCycle;
+        /**
+         * The number of reference counts sampled. This is different
+         * from replacements because we sample all the valid blocks
+         * when the simulator exits.
+         */
+        Stats::Scalar sampledRefs;
 
-    /** Average occupancy of each requestor using the cache */
-    Stats::AverageVector occupancies;
+        /**
+         * Average number of references to a block before is was replaced.
+         * @todo This should change to an average stat once we have them.
+         */
+        Stats::Formula avgRefs;
 
-    /** Average occ % of each requestor using the cache */
-    Stats::Formula avgOccs;
+        /** The cycle that the warmup percentage was hit. 0 on failure. */
+        Stats::Scalar warmupCycle;
 
-    /** Occupancy of each context/cpu using the cache */
-    Stats::Vector occupanciesTaskId;
+        /** Average occupancy of each requestor using the cache */
+        Stats::AverageVector occupancies;
 
-    /** Occupancy of each context/cpu using the cache */
-    Stats::Vector2d ageTaskId;
+        /** Average occ % of each requestor using the cache */
+        Stats::Formula avgOccs;
 
-    /** Occ % of each context/cpu using the cache */
-    Stats::Formula percentOccsTaskId;
+        /** Occupancy of each context/cpu using the cache */
+        Stats::Vector occupanciesTaskId;
 
-    /** Number of tags consulted over all accesses. */
-    Stats::Scalar tagAccesses;
-    /** Number of data blocks consulted over all accesses. */
-    Stats::Scalar dataAccesses;
+        /** Occupancy of each context/cpu using the cache */
+        Stats::Vector2d ageTaskId;
 
-    /**
-     * @}
-     */
+        /** Occ % of each context/cpu using the cache */
+        Stats::Formula percentOccsTaskId;
+
+        /** Number of tags consulted over all accesses. */
+        Stats::Scalar tagAccesses;
+        /** Number of data blocks consulted over all accesses. */
+        Stats::Scalar dataAccesses;
+    } stats;
 
   public:
     typedef BaseTagsParams Params;
@@ -170,11 +169,6 @@ class BaseTags : public ClockedObject
      * code generation does not allow templates.
      */
     virtual void tagsInit() = 0;
-
-    /**
-     * Register local statistics.
-     */
-    void regStats();
 
     /**
      * Average in the reference count for valid blocks when the simulation
@@ -259,9 +253,9 @@ class BaseTags : public ClockedObject
         assert(blk);
         assert(blk->isValid());
 
-        occupancies[blk->srcMasterId]--;
-        totalRefs += blk->refCount;
-        sampledRefs++;
+        stats.occupancies[blk->srcRequestorId]--;
+        stats.totalRefs += blk->refCount;
+        stats.sampledRefs++;
 
         blk->invalidate();
     }
@@ -283,7 +277,7 @@ class BaseTags : public ClockedObject
      */
     virtual CacheBlk* findVictim(Addr addr, const bool is_secure,
                                  const std::size_t size,
-                                 std::vector<CacheBlk*>& evict_blks) const = 0;
+                                 std::vector<CacheBlk*>& evict_blks) = 0;
 
     /**
      * Access block and update replacement data. May not succeed, in which case
@@ -357,22 +351,6 @@ class BaseTags : public ClockedObject
      * @param blk The input block
      */
     void computeStatsVisitor(CacheBlk &blk);
-};
-
-class BaseTagsCallback : public Callback
-{
-    BaseTags *tags;
-  public:
-    BaseTagsCallback(BaseTags *t) : tags(t) {}
-    virtual void process() { tags->cleanupRefs(); };
-};
-
-class BaseTagsDumpCallback : public Callback
-{
-    BaseTags *tags;
-  public:
-    BaseTagsDumpCallback(BaseTags *t) : tags(t) {}
-    virtual void process() { tags->computeStats(); };
 };
 
 #endif //__MEM_CACHE_TAGS_BASE_HH__

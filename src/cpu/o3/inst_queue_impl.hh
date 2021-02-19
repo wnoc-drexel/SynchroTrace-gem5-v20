@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014, 2017-2019 ARM Limited
+ * Copyright (c) 2011-2014, 2017-2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
  */
 
 #ifndef __CPU_O3_INST_QUEUE_IMPL_HH__
@@ -1007,15 +1004,20 @@ InstructionQueue<Impl>::wakeDependents(const DynInstPtr &completed_inst)
     // Tell the memory dependence unit to wake any dependents on this
     // instruction if it is a memory instruction.  Also complete the memory
     // instruction at this point since we know it executed without issues.
-    // @todo: Might want to rename "completeMemInst" to something that
-    // indicates that it won't need to be replayed, and call this
-    // earlier.  Might not be a big deal.
+    ThreadID tid = completed_inst->threadNumber;
     if (completed_inst->isMemRef()) {
-        memDepUnit[completed_inst->threadNumber].wakeDependents(completed_inst);
-        completeMemInst(completed_inst);
+        memDepUnit[tid].completeInst(completed_inst);
+
+        DPRINTF(IQ, "Completing mem instruction PC: %s [sn:%llu]\n",
+            completed_inst->pcState(), completed_inst->seqNum);
+
+        ++freeEntries;
+        completed_inst->memOpDone(true);
+        count[tid]--;
     } else if (completed_inst->isMemBarrier() ||
                completed_inst->isWriteBarrier()) {
-        memDepUnit[completed_inst->threadNumber].completeBarrier(completed_inst);
+        // Completes a non mem ref barrier
+        memDepUnit[tid].completeInst(completed_inst);
     }
 
     for (int dest_reg_idx = 0;
@@ -1122,23 +1124,6 @@ void
 InstructionQueue<Impl>::replayMemInst(const DynInstPtr &replay_inst)
 {
     memDepUnit[replay_inst->threadNumber].replay();
-}
-
-template <class Impl>
-void
-InstructionQueue<Impl>::completeMemInst(const DynInstPtr &completed_inst)
-{
-    ThreadID tid = completed_inst->threadNumber;
-
-    DPRINTF(IQ, "Completing mem instruction PC: %s [sn:%llu]\n",
-            completed_inst->pcState(), completed_inst->seqNum);
-
-    ++freeEntries;
-
-    completed_inst->memOpDone(true);
-
-    memDepUnit[tid].completed(completed_inst);
-    count[tid]--;
 }
 
 template <class Impl>
@@ -1262,7 +1247,6 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
 
             bool is_acq_rel = squashed_inst->isMemBarrier() &&
                          (squashed_inst->isLoad() ||
-                          squashed_inst->isAtomic() ||
                           (squashed_inst->isStore() &&
                              !squashed_inst->isStoreConditional()));
 

@@ -33,11 +33,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/arm/insts/vfp.hh"
+
+using namespace ArmISA;
 
 /*
  * The asm statements below are to keep gcc from reordering code. Otherwise
@@ -47,7 +47,7 @@
 
 std::string
 FpCondCompRegOp::generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss, "", false);
@@ -62,7 +62,7 @@ FpCondCompRegOp::generateDisassembly(
 
 std::string
 FpCondSelOp::generateDisassembly(
-        Addr pc, const SymbolTable *symtab) const
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss, "", false);
@@ -77,7 +77,8 @@ FpCondSelOp::generateDisassembly(
 }
 
 std::string
-FpRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegRegOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);
@@ -88,7 +89,8 @@ FpRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-FpRegImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegImmOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);
@@ -98,7 +100,8 @@ FpRegImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-FpRegRegImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegRegImmOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);
@@ -110,7 +113,8 @@ FpRegRegImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-FpRegRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegRegRegOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);
@@ -123,7 +127,8 @@ FpRegRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-FpRegRegRegCondOp::generateDisassembly(Addr pc, const SymbolTable *symtab)
+FpRegRegRegCondOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab)
     const
 {
     std::stringstream ss;
@@ -138,7 +143,8 @@ FpRegRegRegCondOp::generateDisassembly(Addr pc, const SymbolTable *symtab)
 }
 
 std::string
-FpRegRegRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegRegRegRegOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);
@@ -153,7 +159,8 @@ FpRegRegRegRegOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-FpRegRegRegImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+FpRegRegRegImmOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
     printMnemonic(ss);

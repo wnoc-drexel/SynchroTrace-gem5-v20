@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include "stream_gen.hh"
@@ -45,11 +43,11 @@ StreamGen*
 StreamGen::create(const BaseTrafficGenParams *p)
 {
     switch (p->stream_gen) {
-      case Enums::fixed:
+      case StreamGenType::fixed:
         return new FixedStreamGen(p);
-      case Enums::random:
+      case StreamGenType::random:
         return new RandomStreamGen(p);
-      case Enums::none:
+      case StreamGenType::none:
       default:
         return nullptr;
     }

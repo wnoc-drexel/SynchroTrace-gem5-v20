@@ -33,7 +33,7 @@
 #include <string>
 
 #include "base/cprintf.hh"
-#include "mem/protocol/MachineType.hh"
+#include "mem/ruby/protocol/MachineType.hh"
 
 struct MachineID
 {
@@ -65,6 +65,16 @@ inline bool
 operator!=(const MachineID & obj1, const MachineID & obj2)
 {
     return (obj1.type != obj2.type || obj1.num != obj2.num);
+}
+
+namespace std {
+    template<>
+    struct hash<MachineID> {
+        inline size_t operator()(const MachineID& id) const {
+            size_t hval = MachineType_base_level(id.type) << 16 | id.num;
+            return hval;
+        }
+    };
 }
 
 // Output operator declaration

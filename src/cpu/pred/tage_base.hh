@@ -29,9 +29,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vignyan Reddy, Dibakar Gope and Arthur Perais,
- * from André Seznec's code.
  */
 
 /* @file
@@ -62,7 +59,6 @@ class TAGEBase : public SimObject
 {
   public:
     TAGEBase(const TAGEBaseParams *p);
-    void regStats() override;
     void init() override;
 
   protected:
@@ -318,10 +314,12 @@ class TAGEBase : public SimObject
      * @nrand Random int number from 0 to 3
      * @param corrTarget The correct branch target
      * @param pred Final prediction for this branch
+     * @param preAdjustAlloc call adjustAlloc before checking
+     * pseudo newly allocated entries
      */
     virtual void condBranchUpdate(
         ThreadID tid, Addr branch_pc, bool taken, BranchInfo* bi,
-        int nrand, Addr corrTarget, bool pred);
+        int nrand, Addr corrTarget, bool pred, bool preAdjustAlloc = false);
 
     /**
      * TAGE prediction called from TAGE::predict
@@ -364,7 +362,7 @@ class TAGEBase : public SimObject
      * Calculation of the index for useAltPredForNewlyAllocated
      * On this base TAGE implementation it is always 0
      */
-    virtual unsigned getUseAltIdx(BranchInfo* bi);
+    virtual unsigned getUseAltIdx(BranchInfo* bi, Addr branch_pc);
 
     /**
      * Extra calculation to tell whether TAGE allocaitons may happen or not
@@ -401,12 +399,18 @@ class TAGEBase : public SimObject
      */
     virtual void extraAltCalc(BranchInfo* bi);
 
+    virtual bool isHighConfidence(BranchInfo* bi) const
+    {
+        return false;
+    }
+
     void btbUpdate(ThreadID tid, Addr branch_addr, BranchInfo* &bi);
     unsigned getGHR(ThreadID tid, BranchInfo *bi) const;
     int8_t getCtr(int hitBank, int hitBankIndex) const;
     unsigned getTageCtrBits() const;
     int getPathHist(ThreadID tid) const;
     bool isSpeculativeUpdateEnabled() const;
+    size_t getSizeInBits() const;
 
   protected:
     const unsigned logRatioBiModalHystEntries;
@@ -462,6 +466,7 @@ class TAGEBase : public SimObject
     std::vector<int8_t> useAltPredForNewlyAllocated;
     int64_t tCounter;
     uint64_t logUResetPeriod;
+    const int64_t initialTCounterValue;
     unsigned numUseAltOnNa;
     unsigned useAltOnNaBits;
     unsigned maxNumAlloc;
@@ -475,20 +480,25 @@ class TAGEBase : public SimObject
 
     const unsigned instShiftAmt;
 
-    // stats
-    Stats::Scalar tageLongestMatchProviderCorrect;
-    Stats::Scalar tageAltMatchProviderCorrect;
-    Stats::Scalar bimodalAltMatchProviderCorrect;
-    Stats::Scalar tageBimodalProviderCorrect;
-    Stats::Scalar tageLongestMatchProviderWrong;
-    Stats::Scalar tageAltMatchProviderWrong;
-    Stats::Scalar bimodalAltMatchProviderWrong;
-    Stats::Scalar tageBimodalProviderWrong;
-    Stats::Scalar tageAltMatchProviderWouldHaveHit;
-    Stats::Scalar tageLongestMatchProviderWouldHaveHit;
+    bool initialized;
 
-    Stats::Vector tageLongestMatchProvider;
-    Stats::Vector tageAltMatchProvider;
+    struct TAGEBaseStats : public Stats::Group {
+        TAGEBaseStats(Stats::Group *parent, unsigned nHistoryTables);
+        // stats
+        Stats::Scalar longestMatchProviderCorrect;
+        Stats::Scalar altMatchProviderCorrect;
+        Stats::Scalar bimodalAltMatchProviderCorrect;
+        Stats::Scalar bimodalProviderCorrect;
+        Stats::Scalar longestMatchProviderWrong;
+        Stats::Scalar altMatchProviderWrong;
+        Stats::Scalar bimodalAltMatchProviderWrong;
+        Stats::Scalar bimodalProviderWrong;
+        Stats::Scalar altMatchProviderWouldHaveHit;
+        Stats::Scalar longestMatchProviderWouldHaveHit;
+
+        Stats::Vector longestMatchProvider;
+        Stats::Vector altMatchProvider;
+    } stats;
 };
 
 #endif // __CPU_PRED_TAGE_BASE

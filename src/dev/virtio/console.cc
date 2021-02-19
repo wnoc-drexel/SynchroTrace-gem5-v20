@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "dev/virtio/console.hh"
@@ -45,9 +43,9 @@
 
 VirtIOConsole::VirtIOConsole(Params *params)
     : VirtIODeviceBase(params, ID_CONSOLE, sizeof(Config), F_SIZE),
-      qRecv(params->system->physProxy, params->qRecvSize, *this),
-      qTrans(params->system->physProxy, params->qTransSize, *this),
-      device(*params->device), callbackDataAvail(qRecv)
+      qRecv(params->system->physProxy, byteOrder, params->qRecvSize, *this),
+      qTrans(params->system->physProxy, byteOrder, params->qTransSize, *this),
+      device(*params->device)
 {
     registerQueue(qRecv);
     registerQueue(qTrans);
@@ -55,7 +53,7 @@ VirtIOConsole::VirtIOConsole(Params *params)
     config.cols = 80;
     config.rows = 24;
 
-    device.regInterfaceCallback(&callbackDataAvail);
+    device.regInterfaceCallback([this]() { qRecv.trySend(); });
 }
 
 
@@ -66,8 +64,8 @@ void
 VirtIOConsole::readConfig(PacketPtr pkt, Addr cfgOffset)
 {
     Config cfg_out;
-    cfg_out.rows = htov_legacy(config.rows);
-    cfg_out.cols = htov_legacy(config.cols);
+    cfg_out.rows = htog(config.rows, byteOrder);
+    cfg_out.cols = htog(config.cols, byteOrder);
 
     readConfigBlob(pkt, cfgOffset, (uint8_t *)&cfg_out);
 }

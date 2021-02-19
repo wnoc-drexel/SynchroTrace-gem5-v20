@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #ifndef __BASE_COROUTINE_HH__
@@ -95,6 +93,8 @@ class Coroutine : public Fiber
          *
          * This method is generated only if the coroutine returns
          * a value (Ret != void)
+         *
+         * @ingroup api_coroutine
          */
         template <typename T = Ret>
         CallerType&
@@ -111,6 +111,8 @@ class Coroutine : public Fiber
          *
          * This method is generated only if the coroutine doesn't
          * return a value (Ret = void)
+         *
+         * @ingroup api_coroutine
          */
         template <typename T = Ret>
         typename std::enable_if<std::is_same<T, void>::value,
@@ -130,6 +132,8 @@ class Coroutine : public Fiber
          * from the caller.
          *
          * @return arg coroutine argument
+         *
+         * @ingroup api_coroutine
          */
         template <typename T = Arg>
         typename std::enable_if<!std::is_same<T, void>::value, T>::type
@@ -151,9 +155,14 @@ class Coroutine : public Fiber
         RetChannel retChannel;
     };
 
+    /**
+     * @ingroup api_coroutine
+     * @{
+     */
     Coroutine() = delete;
     Coroutine(const Coroutine& rhs) = delete;
     Coroutine& operator=(const Coroutine& rhs) = delete;
+    /** @} */ // end of api_coroutine
 
     /**
      * Coroutine constructor.
@@ -161,16 +170,28 @@ class Coroutine : public Fiber
      * it needs to run. The first argument of the function should be a
      * reference to the Coroutine<Arg,Ret>::caller_type which the
      * routine will use as a way for yielding to the caller.
+     * The optional second boolean argument controls if the Coroutine
+     * should be run on creation, which mimics Boost's Coroutine
+     * semantics by default. This can be disabled as an optimization to
+     * avoid unnecessary context switches on Coroutine creation.
      *
      * @param f task run by the coroutine
+     * @param run_coroutine set to false to disable running the coroutine
+     *                      immediately after it is created
+     *
+     * @ingroup api_coroutine
      */
-    Coroutine(std::function<void(CallerType&)> f)
+    Coroutine(std::function<void(CallerType&)> f, bool run_coroutine = true)
       : Fiber(), task(f), caller(*this)
     {
-        // Create and Run the Coroutine
-        this->call();
+        // When desired, run the Coroutine after it is created
+        if (run_coroutine)
+            this->call();
     }
 
+    /**
+     * @ingroup api_coroutine
+     */
     virtual ~Coroutine() {}
 
   public:
@@ -182,6 +203,8 @@ class Coroutine : public Fiber
      *
      * This method is generated only if the coroutine takes
      * arguments (Arg != void)
+     *
+     * @ingroup api_coroutine
      */
     template <typename T = Arg>
     Coroutine&
@@ -198,6 +221,8 @@ class Coroutine : public Fiber
      *
      * This method is generated only if the coroutine takes
      * no arguments. (Arg = void)
+     *
+     * @ingroup api_coroutine
      */
     template <typename T = Arg>
     typename std::enable_if<std::is_same<T, void>::value, Coroutine>::type&
@@ -216,6 +241,8 @@ class Coroutine : public Fiber
      * from the coroutine.
      *
      * @return ret yielded value
+     *
+     * @ingroup api_coroutine
      */
     template <typename T = Ret>
     typename std::enable_if<!std::is_same<T, void>::value, T>::type
@@ -231,7 +258,11 @@ class Coroutine : public Fiber
         return ret;
     }
 
-    /** Check if coroutine is still running */
+    /**
+     * Check if coroutine is still running
+     *
+     * @ingroup api_coroutine
+     */
     operator bool() const { return !this->finished(); }
 
   private:

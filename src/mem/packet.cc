@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Steve Reinhardt
  */
 
 /**
@@ -89,6 +86,14 @@ MemCmd::commandInfo[] =
             WriteResp, "WriteReq" },
     /* WriteResp */
     { SET2(IsWrite, IsResponse), InvalidCmd, "WriteResp" },
+    /* WriteCompleteResp - The WriteCompleteResp command is needed
+     * because in the GPU memory model we use a WriteResp to indicate
+     * that a write has reached the cache controller so we can free
+     * resources at the coalescer. Later, when the write succesfully
+     * completes we send a WriteCompleteResp to the CU so its wait
+     * counters can be updated. Wait counters in the CU is how memory
+     * dependences are handled in the GPU ISA. */
+    { SET2(IsWrite, IsResponse), InvalidCmd, "WriteCompleteResp" },
     /* WritebackDirty */
     { SET5(IsWrite, IsRequest, IsEviction, HasData, FromCache),
             InvalidCmd, "WritebackDirty" },
@@ -180,13 +185,14 @@ MemCmd::commandInfo[] =
     /* SwapResp -- for Swap ldstub type operations */
     { SET4(IsRead, IsWrite, IsResponse, HasData),
             InvalidCmd, "SwapResp" },
-    /* IntReq -- for interrupts */
-    { SET4(IsWrite, IsRequest, NeedsResponse, HasData),
-        MessageResp, "MessageReq" },
-    /* IntResp -- for interrupts */
-    { SET2(IsWrite, IsResponse), InvalidCmd, "MessageResp" },
+    { 0, InvalidCmd, "Deprecated_MessageReq" },
+    { 0, InvalidCmd, "Deprecated_MessageResp" },
     /* MemFenceReq -- for synchronization requests */
     {SET2(IsRequest, NeedsResponse), MemFenceResp, "MemFenceReq"},
+    /* MemSyncReq */
+    {SET2(IsRequest, NeedsResponse), MemSyncResp, "MemSyncReq"},
+    /* MemSyncResp */
+    {SET1(IsResponse), InvalidCmd, "MemSyncResp"},
     /* MemFenceResp -- for synchronization responses */
     {SET1(IsResponse), InvalidCmd, "MemFenceResp"},
     /* Cache Clean Request -- Update with the latest data all existing
@@ -224,7 +230,11 @@ MemCmd::commandInfo[] =
       InvalidateResp, "InvalidateReq" },
     /* Invalidation Response */
     { SET2(IsInvalidate, IsResponse),
-      InvalidCmd, "InvalidateResp" }
+      InvalidCmd, "InvalidateResp" },
+      // hardware transactional memory
+    { SET3(IsRead, IsRequest, NeedsResponse), HTMReqResp, "HTMReq" },
+    { SET2(IsRead, IsResponse), InvalidCmd, "HTMReqResp" },
+    { SET2(IsRead, IsRequest), InvalidCmd, "HTMAbort" },
 };
 
 AddrRange
@@ -482,4 +492,63 @@ Packet::PrintReqState::printObj(Printable *obj)
 {
     printLabels();
     obj->print(os, verbosity, curPrefix());
+}
+
+void
+Packet::makeHtmTransactionalReqResponse(
+    const HtmCacheFailure htm_return_code)
+{
+    assert(needsResponse());
+    assert(isRequest());
+
+    cmd = cmd.responseCommand();
+
+    setHtmTransactionFailedInCache(htm_return_code);
+
+    // responses are never express, even if the snoop that
+    // triggered them was
+    flags.clear(EXPRESS_SNOOP);
+}
+
+void
+Packet::setHtmTransactionFailedInCache(
+    const HtmCacheFailure htm_return_code)
+{
+    if (htm_return_code != HtmCacheFailure::NO_FAIL)
+        flags.set(FAILS_TRANSACTION);
+
+    htmReturnReason = htm_return_code;
+}
+
+bool
+Packet::htmTransactionFailedInCache() const
+{
+    return flags.isSet(FAILS_TRANSACTION);
+}
+
+HtmCacheFailure
+Packet::getHtmTransactionFailedInCacheRC() const
+{
+    assert(htmTransactionFailedInCache());
+    return htmReturnReason;
+}
+
+void
+Packet::setHtmTransactional(uint64_t htm_uid)
+{
+    flags.set(FROM_TRANSACTION);
+    htmTransactionUid = htm_uid;
+}
+
+bool
+Packet::isHtmTransactional() const
+{
+    return flags.isSet(FROM_TRANSACTION);
+}
+
+uint64_t
+Packet::getHtmTransactionUid() const
+{
+    assert(flags.isSet(FROM_TRANSACTION));
+    return htmTransactionUid;
 }

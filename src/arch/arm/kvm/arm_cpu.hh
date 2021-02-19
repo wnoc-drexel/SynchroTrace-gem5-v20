@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __ARCH_ARM_KVM_ARM_CPU_HH__
@@ -73,7 +71,7 @@ class ArmKvmCPU : public BaseKvmCPU
         /** KVM ID */
         const uint64_t id;
         /** gem5 index */
-        const IntRegIndex idx;
+        const ArmISA::IntRegIndex idx;
         /** Name in debug output */
         const char *name;
     };
@@ -82,7 +80,7 @@ class ArmKvmCPU : public BaseKvmCPU
         /** KVM ID */
         const uint64_t id;
         /** gem5 index */
-        const MiscRegIndex idx;
+        const ArmISA::MiscRegIndex idx;
         /** Name in debug output */
         const char *name;
     };
@@ -93,8 +91,6 @@ class ArmKvmCPU : public BaseKvmCPU
 
     void updateKvmState();
     void updateThreadContext();
-
-    Tick onKvmExitHypercall();
 
     /**
      * Get a list of registers supported by getOneReg() and setOneReg().

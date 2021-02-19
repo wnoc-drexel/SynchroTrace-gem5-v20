@@ -36,8 +36,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Stephen Hines
 
 def operand_types {{
     'sb' : 'int8_t',
@@ -48,6 +46,8 @@ def operand_types {{
     'uw' : 'uint32_t',
     'sd' : 'int64_t',
     'ud' : 'uint64_t',
+    'sq' : '__int128_t',
+    'uq' : '__uint128_t',
     'tud' : 'std::array<uint64_t, 2>',
     'sf' : 'float',
     'df' : 'double',
@@ -233,10 +233,14 @@ def operands {{
     'R1': intRegNPC('1'),
     'R2': intRegNPC('2'),
     'R3': intRegNPC('3'),
+    'R4': intRegNPC('4'),
+    'R5': intRegNPC('5'),
     'X0': intRegX64('0'),
     'X1': intRegX64('1'),
     'X2': intRegX64('2'),
     'X3': intRegX64('3'),
+    'X4': intRegX64('4'),
+    'X5': intRegX64('5'),
 
     # Condition code registers
     'CondCodesNZ': ccReg('CCREG_NZ'),
@@ -530,6 +534,51 @@ def operands {{
         'AA64FpDestQV1L':  vectorRegElem('0', 'tud', zeroing = True)
     }),
 
+    # Temporary registers for SVE interleaving
+    'AA64IntrlvReg0': vectorReg('INTRLVREG0',
+    {
+        'AA64IntrlvReg0P0': vectorRegElem('0'),
+        'AA64IntrlvReg0P1': vectorRegElem('1'),
+        'AA64IntrlvReg0P2': vectorRegElem('2'),
+        'AA64IntrlvReg0P3': vectorRegElem('3'),
+        'AA64IntrlvReg0S':  vectorRegElem('0', 'sf', zeroing = True),
+        'AA64IntrlvReg0D':  vectorRegElem('0', 'df', zeroing = True),
+        'AA64IntrlvReg0Q':  vectorRegElem('0', 'tud', zeroing = True)
+    }),
+
+    'AA64IntrlvReg1': vectorReg('INTRLVREG1',
+    {
+        'AA64IntrlvReg1P0': vectorRegElem('0'),
+        'AA64IntrlvReg1P1': vectorRegElem('1'),
+        'AA64IntrlvReg1P2': vectorRegElem('2'),
+        'AA64IntrlvReg1P3': vectorRegElem('3'),
+        'AA64IntrlvReg1S':  vectorRegElem('0', 'sf', zeroing = True),
+        'AA64IntrlvReg1D':  vectorRegElem('0', 'df', zeroing = True),
+        'AA64IntrlvReg1Q':  vectorRegElem('0', 'tud', zeroing = True)
+    }),
+
+    'AA64IntrlvReg2': vectorReg('INTRLVREG2',
+    {
+        'AA64IntrlvReg2P0': vectorRegElem('0'),
+        'AA64IntrlvReg2P1': vectorRegElem('1'),
+        'AA64IntrlvReg2P2': vectorRegElem('2'),
+        'AA64IntrlvReg2P3': vectorRegElem('3'),
+        'AA64IntrlvReg2S':  vectorRegElem('0', 'sf', zeroing = True),
+        'AA64IntrlvReg2D':  vectorRegElem('0', 'df', zeroing = True),
+        'AA64IntrlvReg2Q':  vectorRegElem('0', 'tud', zeroing = True)
+    }),
+
+    'AA64IntrlvReg3': vectorReg('INTRLVREG3',
+    {
+        'AA64IntrlvReg3P0': vectorRegElem('0'),
+        'AA64IntrlvReg3P1': vectorRegElem('1'),
+        'AA64IntrlvReg3P2': vectorRegElem('2'),
+        'AA64IntrlvReg3P3': vectorRegElem('3'),
+        'AA64IntrlvReg3S':  vectorRegElem('0', 'sf', zeroing = True),
+        'AA64IntrlvReg3D':  vectorRegElem('0', 'df', zeroing = True),
+        'AA64IntrlvReg3Q':  vectorRegElem('0', 'tud', zeroing = True)
+    }),
+
     'AA64FpDestMerge':       vectorReg('dest',
     {
         'AA64FpDestMergeP0': vectorRegElem('0'),
@@ -581,6 +630,8 @@ def operands {{
     'PDest': vecPredReg('dest'),
     'PDestMerge': vecPredReg('dest'),
     'Ffr': vecPredReg('PREDREG_FFR'),
+    'FfrAux': vecPredReg('PREDREG_FFR'),
+    'PUreg0': vecPredReg('PREDREG_UREG0'),
 
     #Abstracted control reg operands
     'MiscDest': cntrlReg('dest'),

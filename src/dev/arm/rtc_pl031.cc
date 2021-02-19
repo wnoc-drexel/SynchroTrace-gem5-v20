@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #include "dev/arm/rtc_pl031.hh"
@@ -92,7 +90,7 @@ PL031::read(PacketPtr pkt)
       default:
         if (readId(pkt, ambaId, pioAddr)) {
             // Hack for variable sized access
-            data = pkt->getLE<uint32_t>();
+            data = pkt->getUintX(ByteOrder::little);
             break;
         }
         panic("Tried to read PL031 at offset %#x that doesn't exist\n", daddr);
@@ -189,7 +187,7 @@ PL031::counterMatch()
     pendingInt = maskInt & rawInt;
     if (pendingInt && !old_pending) {
         DPRINTF(Timer, "-- Causing interrupt\n");
-        gic->sendInt(intNum);
+        interrupt->raise();
     }
 }
 

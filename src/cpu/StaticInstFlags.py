@@ -1,3 +1,4 @@
+# Copyright (c) 2020 ARM Limited
 # Copyright (c) 2003-2005 The Regents of The University of Michigan
 # Copyright (c) 2013 Advanced Micro Devices, Inc.
 # All rights reserved.
@@ -24,8 +25,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
 
 from m5.params import *
 
@@ -111,5 +110,9 @@ class StaticInstFlags(Enum):
         'IsMicroBranch',    # This microop branches within the microcode for
                             # a macroop
         'IsDspOp',
-        'IsSquashAfter'     # Squash all uncommitted state after executed
+        'IsSquashAfter',     # Squash all uncommitted state after executed
+        # hardware transactional memory
+        'IsHtmStart',       # Starts a HTM transaction
+        'IsHtmStop',        # Stops (commits) a HTM transaction
+        'IsHtmCancel'       # Explicitely aborts a HTM transaction
         ]

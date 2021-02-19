@@ -38,9 +38,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Sascha Bischoff
  */
 
 // This file will contain default statistics for the simulator that
@@ -73,15 +70,6 @@ Tick startTick;
 
 GlobalEvent *dumpEvent;
 
-struct SimTicksReset : public Callback
-{
-    void process()
-    {
-        statTime.setTimer();
-        startTick = curTick();
-    }
-};
-
 double
 statElapsedTime()
 {
@@ -103,8 +91,6 @@ statFinalTick()
 {
     return curTick();
 }
-
-SimTicksReset simTicksReset;
 
 struct Global
 {
@@ -201,7 +187,10 @@ Global::Global()
     hostOpRate = simOps / hostSeconds;
     hostTickRate = simTicks / hostSeconds;
 
-    registerResetCallback(&simTicksReset);
+    registerResetCallback([]() {
+        statTime.setTimer();
+        startTick = curTick();
+    });
 }
 
 void

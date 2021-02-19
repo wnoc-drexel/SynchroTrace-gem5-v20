@@ -36,9 +36,8 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
  */
+
 #ifndef __ARCH_ARM_INSTS_STATICINST_HH__
 #define __ARCH_ARM_INSTS_STATICINST_HH__
 
@@ -46,6 +45,8 @@
 
 #include "arch/arm/faults.hh"
 #include "arch/arm/utility.hh"
+#include "arch/arm/isa.hh"
+#include "arch/arm/self_debug.hh"
 #include "arch/arm/system.hh"
 #include "base/trace.hh"
 #include "cpu/exec_context.hh"
@@ -170,10 +171,10 @@ class ArmStaticInst : public StaticInst
                        bool withCond64 = false,
                        ConditionCode cond64 = COND_UC) const;
     void printTarget(std::ostream &os, Addr target,
-                     const SymbolTable *symtab) const;
+                     const Loader::SymbolTable *symtab) const;
     void printCondition(std::ostream &os, unsigned code,
                         bool noImplicit=false) const;
-    void printMemSymbol(std::ostream &os, const SymbolTable *symtab,
+    void printMemSymbol(std::ostream &os, const Loader::SymbolTable *symtab,
                         const std::string &prefix, const Addr addr,
                         const std::string &suffix) const;
     void printShiftOperand(std::ostream &os, IntRegIndex rm,
@@ -197,7 +198,14 @@ class ArmStaticInst : public StaticInst
     }
 
     std::string generateDisassembly(
-            Addr pc, const SymbolTable *symtab) const override;
+            Addr pc, const Loader::SymbolTable *symtab) const override;
+
+    static void
+    activateBreakpoint(ThreadContext *tc)
+    {
+        SelfDebug *sd = ArmISA::ISA::getSelfDebug(tc);
+        sd->activateDebug();
+    }
 
     static inline uint32_t
     cpsrWriteByInstr(CPSR cpsr, uint32_t val, SCR scr, NSACR nsacr,
@@ -205,11 +213,13 @@ class ArmStaticInst : public StaticInst
     {
         bool privileged   = (cpsr.mode != MODE_USER);
         bool haveVirt     = ArmSystem::haveVirtualization(tc);
-        bool haveSecurity = ArmSystem::haveSecurity(tc);
-        bool isSecure     = inSecureState(scr, cpsr) || !haveSecurity;
+        bool isSecure     = ArmISA::isSecure(tc);
 
         uint32_t bitMask = 0;
 
+        if (affectState && byteMask==0xF){
+            activateBreakpoint(tc);
+        }
         if (bits(byteMask, 3)) {
             unsigned lowIdx = affectState ? 24 : 27;
             bitMask = bitMask | mask(31, lowIdx);
@@ -245,7 +255,7 @@ class ArmStaticInst : public StaticInst
                         validModeChange = false;
                     // There is no Hyp mode ('11010') in Secure state, so that
                     // is UNPREDICTABLE
-                    if (scr.ns == '0' && newMode == MODE_HYP)
+                    if (scr.ns == 0 && newMode == MODE_HYP)
                         validModeChange = false;
                     // Cannot move into Hyp mode directly from a Non-secure
                     // PL1 mode
@@ -314,9 +324,9 @@ class ArmStaticInst : public StaticInst
     cSwap(T val, bool big)
     {
         if (big) {
-            return gtobe(val);
+            return letobe(val);
         } else {
-            return gtole(val);
+            return val;
         }
     }
 
@@ -329,17 +339,17 @@ class ArmStaticInst : public StaticInst
             T tVal;
             E eVals[count];
         } conv;
-        conv.tVal = htog(val);
+        conv.tVal = htole(val);
         if (big) {
             for (unsigned i = 0; i < count; i++) {
-                conv.eVals[i] = gtobe(conv.eVals[i]);
+                conv.eVals[i] = letobe(conv.eVals[i]);
             }
         } else {
             for (unsigned i = 0; i < count; i++) {
-                conv.eVals[i] = gtole(conv.eVals[i]);
+                conv.eVals[i] = conv.eVals[i];
             }
         }
-        return gtoh(conv.tVal);
+        return letoh(conv.tVal);
     }
 
     // Perform an interworking branch.
@@ -475,11 +485,6 @@ class ArmStaticInst : public StaticInst
      * @param el Target EL for the trap.
      */
     Fault sveAccessTrap(ExceptionLevel el) const;
-
-    /**
-     * Check an SVE access against CPTR_EL2 and CPTR_EL3.
-     */
-    Fault checkSveTrap(ThreadContext *tc, CPSR cpsr) const;
 
     /**
      * Check an SVE access against CPACR_EL1, CPTR_EL2, and CPTR_EL3.

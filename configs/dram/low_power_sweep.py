@@ -1,4 +1,4 @@
-# Copyright (c) 2014-2015, 2017 ARM Limited
+# Copyright (c) 2014-2015, 2017, 2019 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -32,9 +32,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Radhika Jagtap
-#          Andreas Hansson
 
 from __future__ import print_function
 from __future__ import absolute_import
@@ -48,6 +45,7 @@ from m5.stats import periodicStatDump
 
 addToPath('../')
 
+from common import ObjectList
 from common import MemConfig
 
 # This script aims at triggering low power state transitions in the DRAM
@@ -61,7 +59,7 @@ parser = argparse.ArgumentParser(
 
 # Use a single-channel DDR4-2400 in 16x4 configuration by default
 parser.add_argument("--mem-type", default="DDR4_2400_16x4",
-                    choices=MemConfig.mem_names(),
+                    choices=ObjectList.mem_list.get_names(),
                     help = "type of memory to use")
 
 parser.add_argument("--mem-ranks", "-r", type=int, default=1,
@@ -78,8 +76,9 @@ parser.add_argument("--itt-list", "-t", default="1 20 100",
 parser.add_argument("--rd-perc", type=int, default=100,
                     help = "Percentage of read commands")
 
-parser.add_argument("--addr-map", type=int, default=1,
-                    help = "0: RoCoRaBaCh; 1: RoRaBaCoCh/RoRaBaChCo")
+parser.add_argument("--addr-map",
+                    choices=m5.objects.AddrMap.vals,
+                    default="RoRaBaCoCh", help = "DRAM address map policy")
 
 parser.add_argument("--idle-end", type=int, default=50000000,
                     help = "time in ps of an idle period at the end ")
@@ -111,22 +110,20 @@ args.elastic_trace_en = 0
 MemConfig.config_mem(args, system)
 
 # Sanity check for memory controller class.
-if not isinstance(system.mem_ctrls[0], m5.objects.DRAMCtrl):
-    fatal("This script assumes the memory is a DRAMCtrl subclass")
+if not isinstance(system.mem_ctrls[0], m5.objects.MemCtrl):
+    fatal("This script assumes the controller is a MemCtrl subclass")
+if not isinstance(system.mem_ctrls[0].dram, m5.objects.DRAMInterface):
+    fatal("This script assumes the memory is a DRAMInterface subclass")
 
 # There is no point slowing things down by saving any data.
-system.mem_ctrls[0].null = True
+system.mem_ctrls[0].dram.null = True
+
+# enable DRAM low power states
+system.mem_ctrls[0].dram.enable_dram_powerdown = True
 
 # Set the address mapping based on input argument
-# Default to RoRaBaCoCh
-if args.addr_map == 0:
-   system.mem_ctrls[0].addr_mapping = "RoCoRaBaCh"
-elif args.addr_map == 1:
-   system.mem_ctrls[0].addr_mapping = "RoRaBaCoCh"
-else:
-    fatal("Did not specify a valid address map argument")
-
-system.mem_ctrls[0].page_policy = args.page_policy
+system.mem_ctrls[0].dram.addr_mapping = args.addr_map
+system.mem_ctrls[0].dram.page_policy = args.page_policy
 
 # We create a traffic generator state for each param combination we want to
 # test. Each traffic generator state is specified in the config file and the
@@ -135,26 +132,27 @@ system.mem_ctrls[0].page_policy = args.page_policy
 period = 250000000
 
 # We specify the states in a config file input to the traffic generator.
-cfg_file_name = "configs/dram/lowp_sweep.cfg"
-cfg_file = open(cfg_file_name, 'w')
+cfg_file_name = "lowp_sweep.cfg"
+cfg_file_path = os.path.dirname(__file__) + "/" +cfg_file_name
+cfg_file = open(cfg_file_path, 'w')
 
 # Get the number of banks
-nbr_banks = int(system.mem_ctrls[0].banks_per_rank.value)
+nbr_banks = int(system.mem_ctrls[0].dram.banks_per_rank.value)
 
 # determine the burst size in bytes
-burst_size = int((system.mem_ctrls[0].devices_per_rank.value *
-                  system.mem_ctrls[0].device_bus_width.value *
-                  system.mem_ctrls[0].burst_length.value) / 8)
+burst_size = int((system.mem_ctrls[0].dram.devices_per_rank.value *
+                  system.mem_ctrls[0].dram.device_bus_width.value *
+                  system.mem_ctrls[0].dram.burst_length.value) / 8)
 
 # next, get the page size in bytes (the rowbuffer size is already in bytes)
-page_size = system.mem_ctrls[0].devices_per_rank.value * \
-    system.mem_ctrls[0].device_rowbuffer_size.value
+page_size = system.mem_ctrls[0].dram.devices_per_rank.value * \
+    system.mem_ctrls[0].dram.device_rowbuffer_size.value
 
 # Inter-request delay should be such that we can hit as many transitions
 # to/from low power states as possible to. We provide a min and max itt to the
 # traffic generator and it randomises in the range. The parameter is in
 # seconds and we need it in ticks (ps).
-itt_min = system.mem_ctrls[0].tBURST.value * 1000000000000
+itt_min = system.mem_ctrls[0].dram.tBURST.value * 1000000000000
 
 #The itt value when set to (tRAS + tRP + tCK) covers the case where
 # a read command is delayed beyond the delay from ACT to PRE_PDN entry of the
@@ -162,9 +160,9 @@ itt_min = system.mem_ctrls[0].tBURST.value * 1000000000000
 # between a write and power down entry will be tRCD + tCL + tWR + tRP + tCK.
 # As we use this delay as a unit and create multiples of it as bigger delays
 # for the sweep, this parameter works for reads, writes and mix of them.
-pd_entry_time = (system.mem_ctrls[0].tRAS.value +
-                 system.mem_ctrls[0].tRP.value +
-                 system.mem_ctrls[0].tCK.value) * 1000000000000
+pd_entry_time = (system.mem_ctrls[0].dram.tRAS.value +
+                 system.mem_ctrls[0].dram.tRP.value +
+                 system.mem_ctrls[0].dram.tCK.value) * 1000000000000
 
 # We sweep itt max using the multipliers specified by the user.
 itt_max_str = args.itt_list.strip().split()
@@ -192,6 +190,8 @@ cfg_file.write("""# STATE state# period mode=DRAM
 # read_percent start_addr end_addr req_size min_itt max_itt data_limit
 # stride_size page_size #banks #banks_util addr_map #ranks\n""")
 
+addr_map = m5.objects.AddrMap.map[args.addr_map]
+
 nxt_state = 0
 for itt_max in itt_max_values:
     for bank in bank_util_values:
@@ -200,7 +200,7 @@ for itt_max in itt_max_values:
                            "%d %d %d %d %d %d %d %d %d\n" %
                            (nxt_state, period, "DRAM", args.rd_perc, max_addr,
                             burst_size, itt_min, itt_max, 0, stride_size,
-                            page_size, nbr_banks, bank, args.addr_map,
+                            page_size, nbr_banks, bank, addr_map,
                             args.mem_ranks))
             nxt_state = nxt_state + 1
 
@@ -220,7 +220,7 @@ cfg_file.write("TRANSITION %d %d 1\n" % (nxt_state, nxt_state))
 cfg_file.close()
 
 # create a traffic generator, and point it to the file we just created
-system.tgen = TrafficGen(config_file = cfg_file_name)
+system.tgen = TrafficGen(config_file = cfg_file_path)
 
 # add a communication monitor
 system.monitor = CommMonitor()

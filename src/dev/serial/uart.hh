@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /** @file
@@ -72,9 +70,6 @@ class Uart : public BasicPioDevice
      * @return interrupt status
      */
     bool intStatus() { return status ? true : false; }
-
-  protected:
-    MakeCallback<Uart, &Uart::dataAvailable> callbackDataAvail;
 };
 
 #endif // __UART_HH__

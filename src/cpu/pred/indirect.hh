@@ -24,14 +24,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Mitch Hayenga
  */
 
 #ifndef __CPU_PRED_INDIRECT_BASE_HH__
 #define __CPU_PRED_INDIRECT_BASE_HH__
 
-#include "arch/isa_traits.hh"
+#include "arch/types.hh"
 #include "config/the_isa.hh"
 #include "cpu/inst_seq.hh"
 #include "params/IndirectPredictor.hh"

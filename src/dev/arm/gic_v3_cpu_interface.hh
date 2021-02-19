@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 2018 Metempsy Technology Consulting
  * All rights reserved.
  *
@@ -24,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jairo Balart
  */
 
 #ifndef __DEV_ARM_GICV3_CPU_INTERFACE_H__
@@ -286,6 +296,7 @@ class Gicv3CPUInterface : public ArmISA::BaseISADevice, public Serializable
   protected:
 
     void activateIRQ(uint32_t intid, Gicv3::GroupId group);
+    void generateSGI(RegVal val, Gicv3::GroupId group);
     int currEL() const;
     void deactivateIRQ(uint32_t intid, Gicv3::GroupId group);
     void dropPriority(Gicv3::GroupId group);
@@ -309,10 +320,11 @@ class Gicv3CPUInterface : public ArmISA::BaseISADevice, public Serializable
     bool isEOISplitMode() const;
     bool isSecureBelowEL3() const;
     ICH_MISR_EL2 maintenanceInterruptStatus() const;
-    void reset();
+    void resetHppi(uint32_t intid);
     void serialize(CheckpointOut & cp) const override;
     void unserialize(CheckpointIn & cp) override;
     void update();
+    void updateDistributor();
     void virtualActivateIRQ(uint32_t lrIdx);
     void virtualDeactivateIRQ(int lrIdx);
     uint8_t virtualDropPriority();
@@ -322,13 +334,19 @@ class Gicv3CPUInterface : public ArmISA::BaseISADevice, public Serializable
     void virtualIncrementEOICount();
     bool virtualIsEOISplitMode() const;
     void virtualUpdate();
+    RegVal bpr1(Gicv3::GroupId group);
+    bool havePendingInterrupts(void) const;
+    void clearPendingInterrupts(void);
+    void assertWakeRequest(void);
+    void deassertWakeRequest(void);
 
+    RegVal readBankedMiscReg(ArmISA::MiscRegIndex misc_reg) const;
+    void setBankedMiscReg(ArmISA::MiscRegIndex misc_reg, RegVal val) const;
   public:
 
     Gicv3CPUInterface(Gicv3 * gic, uint32_t cpu_id);
 
     void init();
-    void initState();
 
   public: // BaseISADevice
     RegVal readMiscReg(int misc_reg) override;

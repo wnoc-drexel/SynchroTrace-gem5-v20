@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Kevin Lim
  */
 
 #include "arch/sparc/faults.hh"
@@ -306,10 +303,10 @@ doREDFault(ThreadContext *tc, TrapType tt)
     RegVal TSTATE = tc->readMiscRegNoEffect(MISCREG_TSTATE);
     PSTATE pstate = tc->readMiscRegNoEffect(MISCREG_PSTATE);
     HPSTATE hpstate = tc->readMiscRegNoEffect(MISCREG_HPSTATE);
-    RegVal CCR = tc->readIntReg(NumIntArchRegs + 2);
+    CCR ccr = tc->readIntReg(INTREG_CCR);
     RegVal ASI = tc->readMiscRegNoEffect(MISCREG_ASI);
     RegVal CWP = tc->readMiscRegNoEffect(MISCREG_CWP);
-    RegVal CANSAVE = tc->readMiscRegNoEffect(NumIntArchRegs + 3);
+    RegVal CANSAVE = tc->readMiscRegNoEffect(INTREG_CANSAVE);
     RegVal GL = tc->readMiscRegNoEffect(MISCREG_GL);
     PCState pc = tc->pcState();
 
@@ -320,7 +317,7 @@ doREDFault(ThreadContext *tc, TrapType tt)
     // set TSTATE.gl to gl
     replaceBits(TSTATE, 42, 40, GL);
     // set TSTATE.ccr to ccr
-    replaceBits(TSTATE, 39, 32, CCR);
+    replaceBits(TSTATE, 39, 32, ccr);
     // set TSTATE.asi to asi
     replaceBits(TSTATE, 31, 24, ASI);
     // set TSTATE.pstate to pstate
@@ -385,10 +382,10 @@ doNormalFault(ThreadContext *tc, TrapType tt, bool gotoHpriv)
     RegVal TSTATE = tc->readMiscRegNoEffect(MISCREG_TSTATE);
     PSTATE pstate = tc->readMiscRegNoEffect(MISCREG_PSTATE);
     HPSTATE hpstate = tc->readMiscRegNoEffect(MISCREG_HPSTATE);
-    RegVal CCR = tc->readIntReg(NumIntArchRegs + 2);
+    CCR ccr = tc->readIntReg(INTREG_CCR);
     RegVal ASI = tc->readMiscRegNoEffect(MISCREG_ASI);
     RegVal CWP = tc->readMiscRegNoEffect(MISCREG_CWP);
-    RegVal CANSAVE = tc->readIntReg(NumIntArchRegs + 3);
+    RegVal CANSAVE = tc->readIntReg(INTREG_CANSAVE);
     RegVal GL = tc->readMiscRegNoEffect(MISCREG_GL);
     PCState pc = tc->pcState();
 
@@ -403,7 +400,7 @@ doNormalFault(ThreadContext *tc, TrapType tt, bool gotoHpriv)
     // set TSTATE.gl to gl
     replaceBits(TSTATE, 42, 40, GL);
     // set TSTATE.ccr to ccr
-    replaceBits(TSTATE, 39, 32, CCR);
+    replaceBits(TSTATE, 39, 32, ccr);
     // set TSTATE.asi to asi
     replaceBits(TSTATE, 31, 24, ASI);
     // set TSTATE.pstate to pstate
@@ -686,7 +683,7 @@ FastDataAccessMMUMiss::invoke(ThreadContext *tc, const StaticInstPtr &inst)
 
     Process *p = tc->getProcessPtr();
     const EmulationPageTable::Entry *pte = p->pTable->lookup(vaddr);
-    if (!pte && p->fixupStackFault(vaddr))
+    if (!pte && p->fixupFault(vaddr))
         pte = p->pTable->lookup(vaddr);
     panic_if(!pte, "Tried to access unmapped address %#x.\n", vaddr);
 
@@ -818,8 +815,7 @@ TrapInstruction::invoke(ThreadContext *tc, const StaticInstPtr &inst)
     SparcProcess *sp = dynamic_cast<SparcProcess *>(p);
     assert(sp);
 
-    Fault fault;
-    sp->handleTrap(_n, tc, &fault);
+    sp->handleTrap(_n, tc);
 
     // We need to explicitly advance the pc, since that's not done for us
     // on a faulting instruction

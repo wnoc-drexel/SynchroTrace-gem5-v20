@@ -25,8 +25,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Timothy M. Jones
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -517,8 +515,7 @@ decode OPCODE default Unknown::unknown() {
         55: stfdu({{ Mem_df = Fs; }});
     }
 
-    17: IntOp::sc({{ xc->syscall(R0, &fault); }},
-                  [ IsSyscall, IsNonSpeculative, IsSerializeAfter ]);
+    17: IntOp::sc({{ return std::make_shared<SESyscallFault>(); }});
 
     format FloatArithOp {
         59: decode A_XO {

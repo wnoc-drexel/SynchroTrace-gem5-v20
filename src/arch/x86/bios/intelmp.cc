@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/bios/intelmp.hh"
@@ -73,7 +71,7 @@ template<class T>
 uint8_t
 writeOutField(PortProxy& proxy, Addr addr, T val)
 {
-    uint64_t guestVal = X86ISA::htog(val);
+    uint64_t guestVal = htole(val);
     proxy.writeBlob(addr, &guestVal, sizeof(T));
 
     uint8_t checkSum = 0;
@@ -286,9 +284,9 @@ X86ISA::IntelMP::Processor::Processor(Params * p) : BaseConfigEntry(p, 0),
     if (p->bootstrap)
         cpuFlags |= (1 << 1);
 
-    replaceBits(cpuSignature, 0, 3, p->stepping);
-    replaceBits(cpuSignature, 4, 7, p->model);
-    replaceBits(cpuSignature, 8, 11, p->family);
+    replaceBits(cpuSignature, 3, 0, p->stepping);
+    replaceBits(cpuSignature, 7, 4, p->model);
+    replaceBits(cpuSignature, 11, 8, p->family);
 }
 
 X86ISA::IntelMP::Processor *

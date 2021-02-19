@@ -24,8 +24,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Brad Beckmann
 
 import math
 import m5
@@ -115,7 +113,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
         l1_cntrl.responseToCache = MessageBuffer(ordered = True)
         l1_cntrl.responseToCache.slave = ruby_system.network.master
 
-    phys_mem_size = sum(map(lambda r: r.size(), system.mem_ranges))
+    phys_mem_size = sum([r.size() for r in system.mem_ranges])
     assert(phys_mem_size % options.num_dirs == 0)
     mem_module_size = phys_mem_size / options.num_dirs
 
@@ -144,6 +142,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
         dir_cntrl.dmaResponseFromDir.master = ruby_system.network.slave
         dir_cntrl.forwardFromDir = MessageBuffer()
         dir_cntrl.forwardFromDir.master = ruby_system.network.slave
+        dir_cntrl.requestToMemory = MessageBuffer()
         dir_cntrl.responseFromMemory = MessageBuffer()
 
 

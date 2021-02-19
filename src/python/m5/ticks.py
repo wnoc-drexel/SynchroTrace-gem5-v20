@@ -23,10 +23,9 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
 
 from __future__ import print_function
+import decimal
 import six
 if six.PY3:
     long = int
@@ -75,7 +74,8 @@ def fromSeconds(value):
     # convert the value from time to ticks
     value *= _m5.core.getClockFrequency()
 
-    int_value = int(round(value))
+    int_value = int(
+            decimal.Decimal(value).to_integral_value( decimal.ROUND_HALF_UP))
     err = (value - int_value) / value
     if err > frequency_tolerance:
         warn("rounding error > tolerance\n    %f rounded to %d", value,

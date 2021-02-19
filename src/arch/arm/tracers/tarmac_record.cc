@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited
+ * Copyright (c) 2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,14 +33,14 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include "arch/arm/tracers/tarmac_record.hh"
 
 #include "arch/arm/insts/static_inst.hh"
 #include "tarmac_tracer.hh"
+
+using namespace ArmISA;
 
 namespace Trace {
 
@@ -120,7 +120,7 @@ TarmacTracerRecord::TraceInstEntry::TraceInstEntry(
     bool predicate)
       : InstEntry(tarmCtx.thread, tarmCtx.pc, tarmCtx.staticInst, predicate)
 {
-    secureMode = inSecureState(tarmCtx.thread);
+    secureMode = isSecure(tarmCtx.thread);
 
     auto arm_inst = static_cast<const ArmStaticInst*>(
         tarmCtx.staticInst.get()
@@ -178,6 +178,12 @@ TarmacTracerRecord::TraceRegEntry::update(
       case MiscRegClass:
         updateMisc(tarmCtx, regRel);
         break;
+      case VecRegClass:
+        updateVec(tarmCtx, regRel);
+        break;
+      case VecPredRegClass:
+        updatePred(tarmCtx, regRel);
+        break;
       default:
         // If unsupported format, do nothing: non updating
         // the register will prevent it to be printed.
@@ -195,7 +201,7 @@ TarmacTracerRecord::TraceRegEntry::updateMisc(
 
     regValid = true;
     regName = miscRegName[regRelIdx];
-    valueLo = thread->readMiscRegNoEffect(regRelIdx);
+    values[Lo] = thread->readMiscRegNoEffect(regRelIdx);
 
     // If it is the CPSR:
     // update the value of the CPSR register and add
@@ -208,7 +214,7 @@ TarmacTracerRecord::TraceRegEntry::updateMisc(
         cpsr.ge = thread->readCCReg(CCREG_GE);
 
         // update the entry value
-        valueLo = cpsr;
+        values[Lo] = cpsr;
     }
 }
 
@@ -222,7 +228,7 @@ TarmacTracerRecord::TraceRegEntry::updateCC(
 
     regValid = true;
     regName = ccRegName[regRelIdx];
-    valueLo = thread->readCCReg(regRelIdx);
+    values[Lo] = thread->readCCReg(regRelIdx);
 }
 
 void
@@ -235,7 +241,7 @@ TarmacTracerRecord::TraceRegEntry::updateFloat(
 
     regValid = true;
     regName  = "f" + std::to_string(regRelIdx);
-    valueLo = bitsToFloat32(thread->readFloatReg(regRelIdx));
+    values[Lo] = bitsToFloat32(thread->readFloatReg(regRelIdx));
 }
 
 void
@@ -275,7 +281,7 @@ TarmacTracerRecord::TraceRegEntry::updateInt(
         regName  = "r" + std::to_string(regRelIdx);
         break;
     }
-    valueLo = thread->readIntReg(regRelIdx);
+    values[Lo] = thread->readIntReg(regRelIdx);
 }
 
 void
@@ -451,7 +457,7 @@ TarmacTracerRecord::TraceRegEntry::print(
         ccprintf(outs, "%s clk R %s %08x\n",
                  curTick(),                 /* Tick time */
                  regName,                   /* Register name */
-                 valueLo);                  /* Register value */
+                 values[Lo]);                  /* Register value */
 }
 
 } // namespace Trace

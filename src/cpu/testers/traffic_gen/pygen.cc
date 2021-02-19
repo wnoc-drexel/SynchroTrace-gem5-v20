@@ -33,11 +33,10 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 #include "cpu/testers/traffic_gen/pygen.hh"
 
+#include "base/trace.hh"
 #include "config/have_protobuf.hh"
 #include "debug/TrafficGen.hh"
 #include "params/PyTrafficGen.hh"

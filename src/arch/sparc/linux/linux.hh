@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_SPARC_LINUX_LINUX_HH__
@@ -38,7 +36,10 @@ class SparcLinux : public Linux
 {
   public:
 
-    typedef struct {
+    static const ByteOrder byteOrder = ByteOrder::big;
+
+    struct tgt_stat
+    {
         uint32_t st_dev;
         char __pad1[4];
         uint64_t st_ino;
@@ -55,7 +56,32 @@ class SparcLinux : public Linux
         int64_t st_blksize;
         int64_t st_blocks;
         uint64_t __unused4[2];
-    } tgt_stat;
+    };
+
+    struct tgt_stat64
+    {
+        uint64_t st_dev;
+        uint64_t st_ino;
+        uint64_t st_nlink;
+
+        uint32_t st_mode;
+        uint32_t st_uid;
+        uint32_t st_gid;
+        uint32_t __pad0;
+
+        uint64_t st_rdev;
+        int64_t st_size;
+        int64_t st_blksize;
+        int64_t st_blocks;
+
+        uint64_t st_atimeX;
+        uint64_t st_atime_nsec;
+        uint64_t st_mtimeX;
+        uint64_t st_mtime_nsec;
+        uint64_t st_ctimeX;
+        uint64_t st_ctime_nsec;
+        int64_t __unused[3];
+    };
 
     // SPARC receives weird subsignals for several of its signals. If you
     // find yourself needing to implement these in detail, look at the
@@ -191,12 +217,12 @@ class SparcLinux : public Linux
               uint64_t stack, uint64_t tls)
     {
         SparcISA::copyRegs(ptc, ctc);
-        ctc->setIntReg(SparcISA::NumIntArchRegs + 6, 0);
-        ctc->setIntReg(SparcISA::NumIntArchRegs + 4, 0);
-        ctc->setIntReg(SparcISA::NumIntArchRegs + 3, SparcISA::NWindows - 2);
-        ctc->setIntReg(SparcISA::NumIntArchRegs + 5, SparcISA::NWindows);
+        ctc->setIntReg(SparcISA::INTREG_OTHERWIN, 0);
+        ctc->setIntReg(SparcISA::INTREG_CANRESTORE, 0);
+        ctc->setIntReg(SparcISA::INTREG_CANSAVE, SparcISA::NWindows - 2);
+        ctc->setIntReg(SparcISA::INTREG_CLEANWIN, SparcISA::NWindows);
         ctc->setMiscReg(SparcISA::MISCREG_CWP, 0);
-        ctc->setIntReg(SparcISA::NumIntArchRegs + 7, 0);
+        ctc->setIntReg(SparcISA::INTREG_WSTATE, 0);
         ctc->setMiscRegNoEffect(SparcISA::MISCREG_TL, 0);
         ctc->setMiscReg(SparcISA::MISCREG_ASI, SparcISA::ASI_PRIMARY);
         for (int y = 8; y < 32; y++)

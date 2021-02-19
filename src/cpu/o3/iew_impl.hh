@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2013, 2018 ARM Limited
+ * Copyright (c) 2010-2013, 2018-2019 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_IEW_IMPL_IMPL_HH__
@@ -148,7 +146,6 @@ DefaultIEW<Impl>::regStats()
     using namespace Stats;
 
     instQueue.regStats();
-    ldstQueue.regStats();
 
     iewIdleCycles
         .name(name() + ".iewIdleCycles")
@@ -317,7 +314,7 @@ DefaultIEW<Impl>::startupStage()
 
     // Initialize the checker's dcache port here
     if (cpu->checker) {
-        cpu->checker->setDcachePort(&cpu->getDataPort());
+        cpu->checker->setDcachePort(&ldstQueue.getDataPort());
     }
 
     cpu->activateStage(O3CPU::IEWIdx);
@@ -1052,6 +1049,20 @@ DefaultIEW<Impl>::dispatchInsts(ThreadID tid)
             ++iewLSQFullEvents;
             break;
         }
+
+        // hardware transactional memory
+        // CPU needs to track transactional state in program order.
+        const int numHtmStarts = ldstQueue.numHtmStarts(tid);
+        const int numHtmStops = ldstQueue.numHtmStops(tid);
+        const int htmDepth = numHtmStarts - numHtmStops;
+
+        if (htmDepth > 0) {
+            inst->setHtmTransactionalState(ldstQueue.getLatestHtmUid(tid),
+                                            htmDepth);
+        } else {
+            inst->clearHtmTransactionalState();
+        }
+
 
         // Otherwise issue the instruction just fine.
         if (inst->isAtomic()) {

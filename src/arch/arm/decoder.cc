@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/arm/decoder.hh"
@@ -56,7 +54,7 @@ GenericISA::BasicDecodeCache Decoder::defaultCache;
 
 Decoder::Decoder(ISA* isa)
     : data(0), fpscrLen(0), fpscrStride(0),
-      decoderFlavour(isa->decoderFlavour())
+      decoderFlavor(isa->decoderFlavor())
 {
     reset();
 
@@ -154,7 +152,7 @@ Decoder::consumeBytes(int numBytes)
 void
 Decoder::moreBytes(const PCState &pc, Addr fetchPC, MachInst inst)
 {
-    data = inst;
+    data = letoh(inst);
     offset = (fetchPC >= pc.instAddr()) ? 0 : pc.instAddr() - fetchPC;
     emi.thumb = pc.thumb();
     emi.aarch64 = pc.aarch64();
@@ -184,7 +182,7 @@ Decoder::decode(ArmISA::PCState &pc)
         pc.nextItstate(itBits);
     this_emi.itstate = pc.itstate();
     this_emi.illegalExecution = pc.illegalExec() ? 1 : 0;
-
+    this_emi.debugStep = pc.debugStep() ? 1 : 0;
     pc.size(inst_size);
 
     emi = 0;

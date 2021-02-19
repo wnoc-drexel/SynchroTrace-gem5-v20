@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019-2020 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 2018 Metempsy Technology Consulting
  * All rights reserved.
  *
@@ -24,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jairo Balart
  */
 
 #ifndef __DEV_ARM_GICV3_REDISTRIBUTOR_H__
@@ -143,6 +153,7 @@ class Gicv3Redistributor : public Serializable
     std::vector <uint8_t> irqGroup;
     std::vector <bool> irqEnabled;
     std::vector <bool> irqPending;
+    std::vector <bool> irqPendingIspendr;
     std::vector <bool> irqActive;
     std::vector <uint8_t> irqPriority;
     std::vector <Gicv3::IntTriggerType> irqConfig;
@@ -205,21 +216,43 @@ class Gicv3Redistributor : public Serializable
     void writeEntryLPI(uint32_t intid, uint8_t lpi_entry);
     bool isPendingLPI(uint32_t intid);
     void setClrLPI(uint64_t data, bool set);
-    void reset();
     void sendSGI(uint32_t int_id, Gicv3::GroupId group, bool ns);
     void serialize(CheckpointOut & cp) const override;
     void unserialize(CheckpointIn & cp) override;
     void update();
-    void updateAndInformCPUInterface();
+    void updateDistributor();
+
+  protected:
+
+    bool isLevelSensitive(uint32_t int_id) const
+    {
+        return irqConfig[int_id] == Gicv3::INT_LEVEL_SENSITIVE;
+    }
+
+    /**
+     * This helper is used to check if an interrupt should be treated as
+     * edge triggered in the following scenarios:
+     *
+     * a) While activating the interrupt
+     * b) While clearing an interrupt via ICPENDR
+     *
+     * In fact, in these two situations, a level sensitive interrupt
+     * which had been made pending via a write to ISPENDR, will be
+     * treated as it if was edge triggered.
+     */
+    bool treatAsEdgeTriggered(uint32_t int_id) const
+    {
+        return !isLevelSensitive(int_id) || irqPendingIspendr[int_id];
+    }
 
   public:
 
     Gicv3Redistributor(Gicv3 * gic, uint32_t cpu_id);
     uint32_t getAffinity() const;
     void init();
-    void initState();
     uint64_t read(Addr addr, size_t size, bool is_secure_access);
     void sendPPInt(uint32_t int_id);
+    void clearPPInt(uint32_t int_id);
     void write(Addr addr, uint64_t data, size_t size, bool is_secure_access);
 };
 

@@ -29,14 +29,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vignyan Reddy, Dibakar Gope and Arthur Perais,
- * from André Seznec's code.
  */
 
 #include "cpu/pred/loop_predictor.hh"
 
 #include "base/random.hh"
+#include "base/trace.hh"
 #include "debug/LTage.hh"
 #include "params/LoopPredictor.hh"
 
@@ -59,7 +57,8 @@ LoopPredictor::LoopPredictor(LoopPredictorParams *p)
     restrictAllocation(p->restrictAllocation),
     initialLoopIter(p->initialLoopIter),
     initialLoopAge(p->initialLoopAge),
-    optionalAgeReset(p->optionalAgeReset)
+    optionalAgeReset(p->optionalAgeReset),
+    stats(this)
 {
     assert(initialLoopAge <= ((1 << loopTableAgeBits) - 1));
 }
@@ -316,9 +315,9 @@ void
 LoopPredictor::updateStats(bool taken, BranchInfo* bi)
 {
     if (taken == bi->loopPred) {
-        loopPredictorCorrect++;
+        stats.correct++;
     } else {
-        loopPredictorWrong++;
+        stats.wrong++;
     }
 }
 
@@ -346,18 +345,22 @@ LoopPredictor::condBranchUpdate(ThreadID tid, Addr branch_pc, bool taken,
     loopUpdate(branch_pc, taken, bi, tage_pred);
 }
 
-void
-LoopPredictor::regStats()
+LoopPredictor::LoopPredictorStats::LoopPredictorStats(Stats::Group *parent)
+    : Stats::Group(parent),
+      ADD_STAT(correct, "Number of times the loop predictor is"
+          " the provider and the prediction is correct"),
+      ADD_STAT(wrong, "Number of times the loop predictor is the"
+          " provider and the prediction is wrong")
 {
-    loopPredictorCorrect
-        .name(name() + ".loopPredictorCorrect")
-        .desc("Number of times the loop predictor is the provider and "
-              "the prediction is correct");
+}
 
-    loopPredictorWrong
-        .name(name() + ".loopPredictorWrong")
-        .desc("Number of times the loop predictor is the provider and "
-              "the prediction is wrong");
+size_t
+LoopPredictor::getSizeInBits() const
+{
+    return (1ULL << logSizeLoopPred) *
+        ((useSpeculation ? 3 : 2) * loopTableIterBits +
+        loopTableConfidenceBits + loopTableTagBits +
+        loopTableAgeBits + useDirectionBit);
 }
 
 LoopPredictor *

@@ -84,7 +84,7 @@ Check::initiatePrefetch()
     DPRINTF(RubyTest, "initiating prefetch\n");
 
     int index = random_mt.random(0, m_num_readers - 1);
-    MasterPort* port = m_tester_ptr->getReadableCpuPort(index);
+    RequestPort* port = m_tester_ptr->getReadableCpuPort(index);
 
     Request::Flags flags;
     flags.set(Request::PREFETCH);
@@ -107,8 +107,9 @@ Check::initiatePrefetch()
     }
 
     // Prefetches are assumed to be 0 sized
-    RequestPtr req = std::make_shared<Request>(m_address, 0, flags,
-            m_tester_ptr->masterId(), curTick(), m_pc);
+    RequestPtr req = std::make_shared<Request>(
+            m_address, 0, flags, m_tester_ptr->requestorId());
+    req->setPC(m_pc);
     req->setContext(index);
 
     PacketPtr pkt = new Packet(req, cmd);
@@ -141,12 +142,13 @@ Check::initiateFlush()
     DPRINTF(RubyTest, "initiating Flush\n");
 
     int index = random_mt.random(0, m_num_writers - 1);
-    MasterPort* port = m_tester_ptr->getWritableCpuPort(index);
+    RequestPort* port = m_tester_ptr->getWritableCpuPort(index);
 
     Request::Flags flags;
 
-    RequestPtr req = std::make_shared<Request>(m_address, CHECK_SIZE, flags,
-            m_tester_ptr->masterId(), curTick(), m_pc);
+    RequestPtr req = std::make_shared<Request>(
+            m_address, CHECK_SIZE, flags, m_tester_ptr->requestorId());
+    req->setPC(m_pc);
 
     Packet::Command cmd;
 
@@ -170,7 +172,7 @@ Check::initiateAction()
     assert(m_status == TesterStatus_Idle);
 
     int index = random_mt.random(0, m_num_writers - 1);
-    MasterPort* port = m_tester_ptr->getWritableCpuPort(index);
+    RequestPort* port = m_tester_ptr->getWritableCpuPort(index);
 
     Request::Flags flags;
 
@@ -179,7 +181,8 @@ Check::initiateAction()
 
     // Stores are assumed to be 1 byte-sized
     RequestPtr req = std::make_shared<Request>(
-        writeAddr, 1, flags, m_tester_ptr->masterId(), curTick(), m_pc);
+        writeAddr, 1, flags, m_tester_ptr->requestorId());
+    req->setPC(m_pc);
 
     req->setContext(index);
     Packet::Command cmd;
@@ -230,7 +233,7 @@ Check::initiateCheck()
     assert(m_status == TesterStatus_Ready);
 
     int index = random_mt.random(0, m_num_readers - 1);
-    MasterPort* port = m_tester_ptr->getReadableCpuPort(index);
+    RequestPort* port = m_tester_ptr->getReadableCpuPort(index);
 
     Request::Flags flags;
 
@@ -242,8 +245,9 @@ Check::initiateCheck()
     }
 
     // Checks are sized depending on the number of bytes written
-    RequestPtr req = std::make_shared<Request>(m_address, CHECK_SIZE, flags,
-                               m_tester_ptr->masterId(), curTick(), m_pc);
+    RequestPtr req = std::make_shared<Request>(
+            m_address, CHECK_SIZE, flags, m_tester_ptr->requestorId());
+    req->setPC(m_pc);
 
     req->setContext(index);
     PacketPtr pkt = new Packet(req, MemCmd::ReadReq);

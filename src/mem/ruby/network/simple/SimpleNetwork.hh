@@ -45,7 +45,7 @@ class SimpleNetwork : public Network
   public:
     typedef SimpleNetworkParams Params;
     SimpleNetwork(const Params *p);
-    ~SimpleNetwork();
+    ~SimpleNetwork() = default;
 
     void init();
 
@@ -60,11 +60,11 @@ class SimpleNetwork : public Network
 
     // Methods used by Topology to setup the network
     void makeExtOutLink(SwitchID src, NodeID dest, BasicLink* link,
-                     const NetDest& routing_table_entry);
+                     std::vector<NetDest>& routing_table_entry);
     void makeExtInLink(NodeID src, SwitchID dest, BasicLink* link,
-                    const NetDest& routing_table_entry);
+                    std::vector<NetDest>& routing_table_entry);
     void makeInternalLink(SwitchID src, SwitchID dest, BasicLink* link,
-                          const NetDest& routing_table_entry,
+                          std::vector<NetDest>& routing_table_entry,
                           PortDirection src_outport,
                           PortDirection dst_inport);
 

@@ -37,14 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Dave Greene
- *          Nathan Binkert
- *          Steve Reinhardt
- *          Ron Dreslinski
- *          Andreas Sandberg
- *          Nikos Nikoleris
  */
 
 /**
@@ -236,7 +228,7 @@ void
 NoncoherentCache::functionalAccess(PacketPtr pkt, bool from_cpu_side)
 {
     panic_if(!from_cpu_side, "Non-coherent cache received functional snoop"
-             " request\n");
+            " request\n");
 
     BaseCache::functionalAccess(pkt, from_cpu_side);
 }
@@ -277,8 +269,8 @@ NoncoherentCache::serviceMSHRTargets(MSHR *mshr, const PacketPtr pkt,
             completion_time += clockEdge(responseLatency) +
                 (transfer_offset ? pkt->payloadDelay : 0);
 
-            assert(tgt_pkt->req->masterId() < system->maxMasters());
-            missLatency[tgt_pkt->cmdToIndex()][tgt_pkt->req->masterId()] +=
+            assert(tgt_pkt->req->requestorId() < system->maxRequestors());
+            stats.cmdStats(tgt_pkt).missLatency[tgt_pkt->req->requestorId()] +=
                 completion_time - target.recvTime;
 
             tgt_pkt->makeTimingResponse();

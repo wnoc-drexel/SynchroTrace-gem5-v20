@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Daniel Carvalho
 
 from m5.params import *
 from m5.proxy import *
@@ -78,7 +76,7 @@ class BRRIPRP(BaseReplacementPolicy):
     type = 'BRRIPRP'
     cxx_class = 'BRRIPRP'
     cxx_header = "mem/cache/replacement_policies/brrip_rp.hh"
-    max_RRPV = Param.Int(3, "Maximum RRPV possible")
+    num_bits = Param.Int(2, "Number of bits per RRPV")
     hit_priority = Param.Bool(False,
         "Prioritize evicting blocks that havent had a hit recently")
     btp = Param.Percent(3,
@@ -89,10 +87,15 @@ class RRIPRP(BRRIPRP):
 
 class NRURP(BRRIPRP):
     btp = 100
-    max_RRPV = 1
+    num_bits = 1
 
 class TreePLRURP(BaseReplacementPolicy):
     type = 'TreePLRURP'
     cxx_class = 'TreePLRURP'
     cxx_header = "mem/cache/replacement_policies/tree_plru_rp.hh"
     num_leaves = Param.Int(Parent.assoc, "Number of leaves in each tree")
+
+class WeightedLRURP(BaseReplacementPolicy):
+    type = "WeightedLRURP"
+    cxx_class = "WeightedLRUPolicy"
+    cxx_header = "mem/cache/replacement_policies/weighted_lru_rp.hh"

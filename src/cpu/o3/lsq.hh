@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012, 2014, 2018 ARM Limited
+ * Copyright (c) 2011-2012, 2014, 2018-2019 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Korey Sewell
  */
 
 #ifndef __CPU_O3_LSQ_HH__
@@ -56,6 +54,9 @@
 #include "sim/sim_object.hh"
 
 struct DerivO3CPUParams;
+
+template <class Impl>
+class FullO3CPU;
 
 template <class Impl>
 class LSQ
@@ -113,6 +114,49 @@ class LSQ
         LSQRequest* request() { return _request; }
         virtual void complete() = 0;
         void writebackDone() { _request->writebackDone(); }
+    };
+
+    /**
+     * DcachePort class for the load/store queue.
+     */
+    class DcachePort : public RequestPort
+    {
+      protected:
+
+        /** Pointer to LSQ. */
+        LSQ<Impl> *lsq;
+        FullO3CPU<Impl> *cpu;
+
+      public:
+        /** Default constructor. */
+        DcachePort(LSQ<Impl> *_lsq, FullO3CPU<Impl>* _cpu)
+            : RequestPort(_cpu->name() + ".dcache_port", _cpu), lsq(_lsq),
+              cpu(_cpu)
+        { }
+
+      protected:
+
+        /** Timing version of receive.  Handles writing back and
+         * completing the load or store that has returned from
+         * memory. */
+        virtual bool recvTimingResp(PacketPtr pkt);
+        virtual void recvTimingSnoopReq(PacketPtr pkt);
+
+        virtual void recvFunctionalSnoop(PacketPtr pkt)
+        {
+            // @todo: Is there a need for potential invalidation here?
+        }
+
+        /** Handles doing a retry of the previous send. */
+        virtual void recvReqRetry();
+
+        /**
+         * As this CPU requires snooping to maintain the load store queue
+         * change the behaviour from the base CPU port.
+         *
+         * @return true since we have to snoop
+         */
+        virtual bool isSnooping() const { return true; }
     };
 
     /** Memory operation metadata.
@@ -223,9 +267,8 @@ class LSQ
             NotIssued,
             Translation,
             Request,
-            Complete,
-            Squashed,
             Fault,
+            PartialFault,
         };
         State _state;
         LSQSenderState* _senderState;
@@ -254,7 +297,7 @@ class LSQ
         const Request::Flags _flags;
         std::vector<bool> _byteEnable;
         uint32_t _numOutstandingPackets;
-        AtomicOpFunctor *_amo_op;
+        AtomicOpFunctorPtr _amo_op;
       protected:
         LSQUnit* lsqUnit() { return &_port; }
         LSQRequest(LSQUnit* port, const DynInstPtr& inst, bool isLoad) :
@@ -273,7 +316,7 @@ class LSQ
                    const Addr& addr, const uint32_t& size,
                    const Request::Flags& flags_,
                    PacketDataPtr data = nullptr, uint64_t* res = nullptr,
-                   AtomicOpFunctor* amo_op = nullptr)
+                   AtomicOpFunctorPtr amo_op = nullptr)
             : _state(State::NotIssued), _senderState(nullptr),
             numTranslatedFragments(0),
             numInTranslationFragments(0),
@@ -281,7 +324,7 @@ class LSQ
             _res(res), _addr(addr), _size(size),
             _flags(flags_),
             _numOutstandingPackets(0),
-            _amo_op(amo_op)
+            _amo_op(std::move(amo_op))
         {
             flags.set(Flag::IsLoad, isLoad);
             flags.set(Flag::WbStore,
@@ -361,15 +404,16 @@ class LSQ
          */
         void
         addRequest(Addr addr, unsigned size,
-                   const std::vector<bool>& byteEnable)
+                   const std::vector<bool>& byte_enable)
         {
-            if (byteEnable.empty() ||
-                isAnyActiveElement(byteEnable.begin(), byteEnable.end())) {
-                auto request = std::make_shared<Request>(_inst->getASID(),
-                        addr, size, _flags, _inst->masterId(),
-                        _inst->instAddr(), _inst->contextId());
-                if (!byteEnable.empty()) {
-                    request->setByteEnable(byteEnable);
+            if (byte_enable.empty() ||
+                isAnyActiveElement(byte_enable.begin(), byte_enable.end())) {
+                auto request = std::make_shared<Request>(
+                        addr, size, _flags, _inst->requestorId(),
+                        _inst->instAddr(), _inst->contextId(),
+                        std::move(_amo_op));
+                if (!byte_enable.empty()) {
+                    request->setByteEnable(byte_enable);
                 }
                 _requests.push_back(request);
             }
@@ -411,10 +455,10 @@ class LSQ
          * For a previously allocated Request objects.
          */
         void
-        setVirt(int asid, Addr vaddr, unsigned size, Request::Flags flags_,
-                MasterID mid, Addr pc)
+        setVirt(Addr vaddr, unsigned size, Request::Flags flags_,
+                RequestorID requestor_id, Addr pc)
         {
-            request()->setVirt(asid, vaddr, size, flags_, mid, pc);
+            request()->setVirt(vaddr, size, flags_, requestor_id, pc);
         }
 
         void
@@ -505,8 +549,8 @@ class LSQ
         /**
          * Memory mapped IPR accesses
          */
-        virtual void handleIprWrite(ThreadContext *thread, PacketPtr pkt) = 0;
-        virtual Cycles handleIprRead(ThreadContext *thread, PacketPtr pkt) = 0;
+        virtual Cycles handleLocalAccess(
+                ThreadContext *thread, PacketPtr pkt) = 0;
 
         /**
          * Test if the request accesses a particular cache line.
@@ -562,6 +606,25 @@ class LSQ
         isSent()
         {
             return flags.isSet(Flag::Sent);
+        }
+
+        bool
+        isPartialFault()
+        {
+            return _state == State::PartialFault;
+        }
+
+        bool
+        isMemAccessRequired()
+        {
+            return (_state == State::Request ||
+                    (isPartialFault() && isLoad()));
+        }
+
+        void
+        setStateToFault()
+        {
+            setState(State::Fault);
         }
 
         /**
@@ -624,6 +687,8 @@ class LSQ
         {
             flags.set(Flag::Complete);
         }
+
+        virtual std::string name() const { return "LSQRequest"; }
     };
 
     class SingleDataRequest : public LSQRequest
@@ -663,9 +728,9 @@ class LSQ
                           const Request::Flags& flags_,
                           PacketDataPtr data = nullptr,
                           uint64_t* res = nullptr,
-                          AtomicOpFunctor* amo_op = nullptr) :
+                          AtomicOpFunctorPtr amo_op = nullptr) :
             LSQRequest(port, inst, isLoad, addr, size, flags_, data, res,
-                       amo_op) {}
+                       std::move(amo_op)) {}
 
         inline virtual ~SingleDataRequest() {}
         virtual void initiateTranslation();
@@ -674,9 +739,37 @@ class LSQ
         virtual bool recvTimingResp(PacketPtr pkt);
         virtual void sendPacketToCache();
         virtual void buildPackets();
-        virtual void handleIprWrite(ThreadContext *thread, PacketPtr pkt);
-        virtual Cycles handleIprRead(ThreadContext *thread, PacketPtr pkt);
+        virtual Cycles handleLocalAccess(ThreadContext *thread, PacketPtr pkt);
         virtual bool isCacheBlockHit(Addr blockAddr, Addr cacheBlockMask);
+        virtual std::string name() const { return "SingleDataRequest"; }
+    };
+
+    // hardware transactional memory
+    // This class extends SingleDataRequest for the sole purpose
+    // of encapsulating hardware transactional memory command requests
+    class HtmCmdRequest : public SingleDataRequest
+    {
+    protected:
+      /* Given that we are inside templates, children need explicit
+       * declaration of the names in the parent class. */
+      using Flag = typename LSQRequest::Flag;
+      using State = typename LSQRequest::State;
+      using LSQRequest::_addr;
+      using LSQRequest::_size;
+      using LSQRequest::_byteEnable;
+      using LSQRequest::_requests;
+      using LSQRequest::_inst;
+      using LSQRequest::_taskId;
+      using LSQRequest::flags;
+      using LSQRequest::setState;
+    public:
+      HtmCmdRequest(LSQUnit* port, const DynInstPtr& inst,
+                        const Request::Flags& flags_);
+      inline virtual ~HtmCmdRequest() {}
+      virtual void initiateTranslation();
+      virtual void finish(const Fault &fault, const RequestPtr &req,
+              ThreadContext* tc, BaseTLB::Mode mode);
+      virtual std::string name() const { return "HtmCmdRequest"; }
     };
 
     class SplitDataRequest : public LSQRequest
@@ -748,12 +841,12 @@ class LSQ
         virtual void sendPacketToCache();
         virtual void buildPackets();
 
-        virtual void handleIprWrite(ThreadContext *thread, PacketPtr pkt);
-        virtual Cycles handleIprRead(ThreadContext *thread, PacketPtr pkt);
+        virtual Cycles handleLocalAccess(ThreadContext *thread, PacketPtr pkt);
         virtual bool isCacheBlockHit(Addr blockAddr, Addr cacheBlockMask);
 
         virtual RequestPtr mainRequest();
         virtual PacketPtr mainPacket();
+        virtual std::string name() const { return "SplitDataRequest"; }
     };
 
     /** Constructs an LSQ with the given parameters. */
@@ -762,9 +855,6 @@ class LSQ
 
     /** Returns the name of the LSQ. */
     std::string name() const;
-
-    /** Registers statistics of each LSQ unit. */
-    void regStats();
 
     /** Sets the pointer to the list of active threads. */
     void setActiveThreads(std::list<ThreadID> *at_ptr);
@@ -872,6 +962,44 @@ class LSQ
     /** Returns the total number of stores for a single thread. */
     int numStores(ThreadID tid) { return thread.at(tid).numStores(); }
 
+
+    // hardware transactional memory
+
+    int numHtmStarts(ThreadID tid) const
+    {
+        if (tid == InvalidThreadID)
+            return 0;
+        else
+            return thread[tid].numHtmStarts();
+    }
+    int numHtmStops(ThreadID tid) const
+    {
+        if (tid == InvalidThreadID)
+            return 0;
+        else
+            return thread[tid].numHtmStops();
+    }
+
+    void resetHtmStartsStops(ThreadID tid)
+    {
+        if (tid != InvalidThreadID)
+            thread[tid].resetHtmStartsStops();
+    }
+
+    uint64_t getLatestHtmUid(ThreadID tid) const
+    {
+        if (tid == InvalidThreadID)
+            return 0;
+        else
+            return thread[tid].getLatestHtmUid();
+    }
+
+    void setLastRetiredHtmUid(ThreadID tid, uint64_t htmUid)
+    {
+        if (tid != InvalidThreadID)
+            thread[tid].setLastRetiredHtmUid(htmUid);
+    }
+
     /** Returns the number of free load entries. */
     unsigned numFreeLoadEntries();
 
@@ -974,8 +1102,8 @@ class LSQ
 
     Fault pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                       unsigned int size, Addr addr, Request::Flags flags,
-                      uint64_t *res, AtomicOpFunctor *amo_op,
-                      const std::vector<bool>& byteEnable);
+                      uint64_t *res, AtomicOpFunctorPtr amo_op,
+                      const std::vector<bool>& byte_enable);
 
     /** The CPU pointer. */
     O3CPU *cpu;
@@ -991,6 +1119,8 @@ class LSQ
     bool cachePortAvailable(bool is_load) const;
     /** Another store port is in use */
     void cachePortBusy(bool is_load);
+
+    RequestPort &getDataPort() { return dcachePort; }
 
   protected:
     /** D-cache is blocked */
@@ -1044,6 +1174,9 @@ class LSQ
 
     /** Max SQ Size - Used to Enforce Sharing Policies. */
     unsigned maxSQEntries;
+
+    /** Data port. */
+    DcachePort dcachePort;
 
     /** The LSQ units for individual threads. */
     std::vector<LSQUnit> thread;

@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
- *          Erik Hallnor
  */
 
 /**
@@ -136,7 +133,7 @@ class BaseIndexingPolicy : public SimObject
      * @param addr The address to get the tag from.
      * @return The tag of the address.
      */
-    Addr extractTag(const Addr addr) const;
+    virtual Addr extractTag(const Addr addr) const;
 
     /**
      * Find all possible entries for insertion and replacement of an address.

@@ -25,9 +25,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
-#          Nathan Binkert
 
 Import('*')
 
@@ -61,6 +58,7 @@ PySource('m5.util', 'm5/util/sorteddict.py')
 PySource('m5.util', 'm5/util/terminal.py')
 PySource('m5.util', 'm5/util/pybind.py')
 PySource('m5.util', 'm5/util/fdthelper.py')
+PySource('m5.util', 'm5/util/terminal_formatter.py')
 
 PySource('m5.internal', 'm5/internal/__init__.py')
 PySource('m5.internal', 'm5/internal/params.py')

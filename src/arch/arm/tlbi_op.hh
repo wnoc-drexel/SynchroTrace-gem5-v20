@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #ifndef __ARCH_ARM_TLBI_HH__
@@ -70,11 +68,8 @@ class TLBIOp
     void
     broadcast(ThreadContext *tc)
     {
-        System *sys = tc->getSystemPtr();
-        for (int x = 0; x < sys->numContexts(); x++) {
-            ThreadContext *oc = sys->getThreadContext(x);
+        for (auto *oc: tc->getSystemPtr()->threads)
             (*this)(oc);
-        }
     }
 
   protected:

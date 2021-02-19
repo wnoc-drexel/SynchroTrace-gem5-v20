@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Ali Saidi
- *          Andreas Hansson
  */
 
 #include "mem/simple_mem.hh"
@@ -158,7 +154,7 @@ SimpleMemory::recvTimingReq(PacketPtr pkt)
     // queue if there is one
     bool needsResponse = pkt->needsResponse();
     recvAtomic(pkt);
-    // turn packet around to go back to requester if response expected
+    // turn packet around to go back to requestor if response expected
     if (needsResponse) {
         // recvAtomic() should already have turned packet into
         // atomic response
@@ -264,7 +260,7 @@ SimpleMemory::drain()
 
 SimpleMemory::MemoryPort::MemoryPort(const std::string& _name,
                                      SimpleMemory& _memory)
-    : SlavePort(_name, &_memory), memory(_memory)
+    : ResponsePort(_name, &_memory), memory(_memory)
 { }
 
 AddrRangeList

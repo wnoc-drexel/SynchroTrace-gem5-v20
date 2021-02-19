@@ -36,11 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Erik Hallnor
- *          Steve Reinhardt
- *          Andreas Sandberg
  */
 
 /* @file
@@ -77,11 +72,19 @@ class CheckpointIn
 
     SimObjectResolver &objNameResolver;
 
+    const std::string _cptDir;
+
   public:
     CheckpointIn(const std::string &cpt_dir, SimObjectResolver &resolver);
     ~CheckpointIn();
 
-    const std::string cptDir;
+    /**
+     * @return Returns the current directory being used for creating
+     * checkpoints or restoring checkpoints.
+     * @ingroup api_serialize
+     * @{
+     */
+    const std::string getCptDir() { return _cptDir; }
 
     bool find(const std::string &section, const std::string &entry,
               std::string &value);
@@ -89,9 +92,9 @@ class CheckpointIn
     bool findObj(const std::string &section, const std::string &entry,
                  SimObject *&value);
 
-
     bool entryExists(const std::string &section, const std::string &entry);
     bool sectionExists(const std::string &section);
+    /** @}*/ //end of api_checkout group
 
     // The following static functions have to do with checkpoint
     // creation rather than restoration.  This class makes a handy
@@ -104,16 +107,28 @@ class CheckpointIn
     // current directory we're serializing into.
     static std::string currentDirectory;
 
+
   public:
-    // Set the current directory.  This function takes care of
-    // inserting curTick() if there's a '%d' in the argument, and
-    // appends a '/' if necessary.  The final name is returned.
+    /**
+     * Set the current directory
+     *
+     * This function takes care of inserting curTick() if there's a '%d' in the
+     * argument, and appends a '/' if necessary. The final name is returned.
+     *
+     * @ingroup api_serialize
+     */
     static std::string setDir(const std::string &base_name);
 
-    // Export current checkpoint directory name so other objects can
-    // derive filenames from it (e.g., memory).  The return value is
-    // guaranteed to end in '/' so filenames can be directly appended.
-    // This function is only valid while a checkpoint is being created.
+    /**
+     * Get the current checkout directory name
+     *
+     * This function exports the current checkout point directory name so other
+     * objects can derive filenames from it (e.g., memory). The return value is
+     * guaranteed to end in '/' so filenames can be directly appended. This
+     * function is only valid while a checkpoint is being created.
+     *
+     * @ingroup api_serialize
+     */
     static std::string dir();
 
     // Filename for base checkpoint file within directory.
@@ -122,6 +137,10 @@ class CheckpointIn
 
 /**
  * Basic support for object serialization.
+ *
+ * The Serailizable interface is used to create checkpoints. Any
+ * object that implements this interface can be included in
+ * gem5's checkpointing system.
  *
  * Objects that support serialization should derive from this
  * class. Such objects can largely be divided into two categories: 1)
@@ -153,25 +172,30 @@ class CheckpointIn
 class Serializable
 {
   protected:
-    /**
-     * Scoped checkpoint section helper class
-     *
-     * This helper class creates a section within a checkpoint without
-     * the need for a separate serializeable object. It is mainly used
-     * within the Serializable class when serializing or unserializing
-     * section (see serializeSection() and unserializeSection()). It
-     * can also be used to maintain backwards compatibility in
-     * existing code that serializes structs that are not inheriting
-     * from Serializable into subsections.
-     *
-     * When the class is instantiated, it appends a name to the active
-     * path in a checkpoint. The old path is later restored when the
-     * instance is destroyed. For example, serializeSection() could be
-     * implemented by instantiating a ScopedCheckpointSection and then
-     * calling serialize() on an object.
-     */
     class ScopedCheckpointSection {
       public:
+        /**
+         * This is the constructor for Scoped checkpoint section helper
+         * class.
+         *
+         * Scoped checkpoint helper class creates a section within a
+         * checkpoint without the need for a separate serializeable
+         * object. It is mainly used within the Serializable class
+         * when serializing or unserializing section (see
+         * serializeSection() and unserializeSection()). It
+         * can also be used to maintain backwards compatibility in
+         * existing code that serializes structs that are not inheriting
+         * from Serializable into subsections.
+         *
+         * When the class is instantiated, it appends a name to the active
+         * path in a checkpoint. The old path is later restored when the
+         * instance is destroyed. For example, serializeSection() could be
+         * implemented by instantiating a ScopedCheckpointSection and then
+         * calling serialize() on an object.
+         *
+         * @ingroup api_serialize
+         * @{
+         */
         template<class CP>
         ScopedCheckpointSection(CP &cp, const char *name) {
             pushName(name);
@@ -183,6 +207,7 @@ class Serializable
             pushName(name.c_str());
             nameOut(cp);
         }
+        /** @}*/ //end of api_serialize group
 
         ~ScopedCheckpointSection();
 
@@ -200,6 +225,9 @@ class Serializable
     };
 
   public:
+    /**
+     * @ingroup api_serialize
+     */
     Serializable();
     virtual ~Serializable();
 
@@ -209,6 +237,8 @@ class Serializable
      * Output an object's state into the current checkpoint section.
      *
      * @param cp Checkpoint state
+     *
+     * @ingroup api_serialize
      */
     virtual void serialize(CheckpointOut &cp) const = 0;
 
@@ -218,6 +248,8 @@ class Serializable
      * Read an object's state from the current checkpoint section.
      *
      * @param cp Checkpoint state
+     *
+     * @ingroup api_serialize
      */
     virtual void unserialize(CheckpointIn &cp) = 0;
 
@@ -231,9 +263,14 @@ class Serializable
      *
      * @param cp Checkpoint state
      * @param name Name to append to the active path
+     *
+     * @ingroup api_serialize
      */
     void serializeSection(CheckpointOut &cp, const char *name) const;
 
+    /**
+     * @ingroup api_serialize
+     */
     void serializeSection(CheckpointOut &cp, const std::string &name) const {
         serializeSection(cp, name.c_str());
     }
@@ -247,37 +284,56 @@ class Serializable
      *
      * @param cp Checkpoint state
      * @param name Name to append to the active path
+     *
+     * @ingroup api_serialize
      */
     void unserializeSection(CheckpointIn &cp, const char *name);
 
+    /**
+     * @ingroup api_serialize
+     */
     void unserializeSection(CheckpointIn &cp, const std::string &name) {
         unserializeSection(cp, name.c_str());
     }
 
-    /** Get the fully-qualified name of the active section */
+    /**
+     * Gets the fully-qualified name of the active section
+     *
+     * @ingroup api_serialize
+     */
     static const std::string &currentSection();
 
-    static int ckptCount;
-    static int ckptMaxCount;
-    static int ckptPrevCount;
+    /**
+     * Serializes all the SimObjects.
+     *
+     * @ingroup api_serialize
+     */
     static void serializeAll(const std::string &cpt_dir);
+
+    /**
+     * @ingroup api_serialize
+     */
     static void unserializeGlobals(CheckpointIn &cp);
 
   private:
     static std::stack<std::string> path;
 };
 
-//
-// The base implementations use to_number for parsing and '<<' for
-// displaying, suitable for integer types.
-//
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 bool
 parseParam(const std::string &s, T &value)
 {
+    // The base implementations use to_number for parsing and '<<' for
+    // displaying, suitable for integer types.
     return to_number(s, value);
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 showParam(CheckpointOut &os, const T &value)
@@ -285,6 +341,9 @@ showParam(CheckpointOut &os, const T &value)
     os << value;
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 bool
 parseParam(const std::string &s, BitUnionType<T> &value)
@@ -296,6 +355,9 @@ parseParam(const std::string &s, BitUnionType<T> &value)
     return res;
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 showParam(CheckpointOut &os, const BitUnionType<T> &value)
@@ -309,14 +371,20 @@ showParam(CheckpointOut &os, const BitUnionType<T> &value)
         static_cast<unsigned int>(storage) : storage);
 }
 
-// Treat 8-bit ints (chars) as ints on output, not as chars
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline void
 showParam(CheckpointOut &os, const char &value)
 {
+    // Treat 8-bit ints (chars) as ints on output, not as chars
     os << (int)value;
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline void
 showParam(CheckpointOut &os, const signed char &value)
@@ -324,6 +392,9 @@ showParam(CheckpointOut &os, const signed char &value)
     os << (int)value;
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline void
 showParam(CheckpointOut &os, const unsigned char &value)
@@ -331,6 +402,9 @@ showParam(CheckpointOut &os, const unsigned char &value)
     os << (unsigned int)value;
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline bool
 parseParam(const std::string &s, float &value)
@@ -338,6 +412,9 @@ parseParam(const std::string &s, float &value)
     return to_number(s, value);
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline bool
 parseParam(const std::string &s, double &value)
@@ -345,6 +422,9 @@ parseParam(const std::string &s, double &value)
     return to_number(s, value);
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline bool
 parseParam(const std::string &s, bool &value)
@@ -352,23 +432,36 @@ parseParam(const std::string &s, bool &value)
     return to_bool(s, value);
 }
 
-// Display bools as strings
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline void
 showParam(CheckpointOut &os, const bool &value)
 {
+    // Display bools as strings
     os << (value ? "true" : "false");
 }
 
-// String requires no processing to speak of
+/**
+ * @ingroup api_serialize
+ */
 template <>
 inline bool
 parseParam(const std::string &s, std::string &value)
 {
+    // String requires no processing to speak of
     value = s;
     return true;
 }
 
+/**
+ * This function is used for writing parameters to a checkpoint.
+ * @param os The checkpoint to be written to.
+ * @param name Name of the parameter to be set.
+ * @param param Value of the parameter to be written.
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 paramOut(CheckpointOut &os, const std::string &name, const T &param)
@@ -378,6 +471,13 @@ paramOut(CheckpointOut &os, const std::string &name, const T &param)
     os << "\n";
 }
 
+/**
+ * This function is used for restoring parameters from a checkpoint.
+ * @param os The checkpoint to be restored from.
+ * @param name Name of the parameter to be set.
+ * @param param Value of the parameter to be restored.
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 paramIn(CheckpointIn &cp, const std::string &name, T &param)
@@ -389,6 +489,19 @@ paramIn(CheckpointIn &cp, const std::string &name, T &param)
     }
 }
 
+/**
+ * This function is used for restoring optional parameters from the
+ * checkpoint.
+ * @param cp The checkpoint to be written to.
+ * @param name Name of the parameter to be written.
+ * @param param Value of the parameter to be written.
+ * @param warn If the warn is set to true then the function prints the warning
+ * message.
+ * @return If the parameter we are searching for does not exist
+ * the function returns false else it returns true.
+ *
+ * @ingroup api_serialize
+ */
 template <class T>
 bool
 optParamIn(CheckpointIn &cp, const std::string &name,
@@ -405,6 +518,9 @@ optParamIn(CheckpointIn &cp, const std::string &name,
     }
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamOut(CheckpointOut &os, const std::string &name,
@@ -421,6 +537,9 @@ arrayParamOut(CheckpointOut &os, const std::string &name,
     os << "\n";
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamOut(CheckpointOut &os, const std::string &name,
@@ -440,6 +559,9 @@ arrayParamOut(CheckpointOut &os, const std::string &name,
     os << "\n";
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamOut(CheckpointOut &os, const std::string &name,
@@ -459,6 +581,9 @@ arrayParamOut(CheckpointOut &os, const std::string &name,
     os << "\n";
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamOut(CheckpointOut &os, const std::string &name,
@@ -482,6 +607,8 @@ arrayParamOut(CheckpointOut &os, const std::string &name,
  * @param name Name of the container.
  * @param param The array container.
  * @param size The expected number of entries to be extracted.
+ *
+ * @ingroup api_serialize
  */
 template <class T>
 void
@@ -528,6 +655,9 @@ arrayParamIn(CheckpointIn &cp, const std::string &name,
     }
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamIn(CheckpointIn &cp, const std::string &name, std::vector<T> &param)
@@ -570,6 +700,9 @@ arrayParamIn(CheckpointIn &cp, const std::string &name, std::vector<T> &param)
     }
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamIn(CheckpointIn &cp, const std::string &name, std::list<T> &param)
@@ -600,6 +733,9 @@ arrayParamIn(CheckpointIn &cp, const std::string &name, std::list<T> &param)
     }
 }
 
+/**
+ * @ingroup api_serialize
+ */
 template <class T>
 void
 arrayParamIn(CheckpointIn &cp, const std::string &name, std::set<T> &param)
@@ -633,6 +769,10 @@ arrayParamIn(CheckpointIn &cp, const std::string &name, std::set<T> &param)
 void
 debug_serialize(const std::string &cpt_dir);
 
+
+/**
+ * @ingroup api_serialize
+ */
 void
 objParamIn(CheckpointIn &cp, const std::string &name, SimObject * &param);
 
@@ -640,14 +780,43 @@ objParamIn(CheckpointIn &cp, const std::string &name, SimObject * &param);
 // These macros are streamlined to use in serialize/unserialize
 // functions.  It's assumed that serialize() has a parameter 'os' for
 // the ostream, and unserialize() has parameters 'cp' and 'section'.
+
+
+/**
+ * \def SERIALIZE_SCALER(scaler)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_SCALAR(scalar)        paramOut(cp, #scalar, scalar)
 
+/**
+ * \def UNSERIALIZE_SCALER(scalar)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_SCALAR(scalar)      paramIn(cp, #scalar, scalar)
+
+/**
+ * \def UNSERIALIZE_OPT_SCALAR(scalar)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_OPT_SCALAR(scalar)      optParamIn(cp, #scalar, scalar)
 
 // ENUMs are like SCALARs, but we cast them to ints on the way out
+
+/**
+ * \def SERIALIZE_ENUM(scalar)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_ENUM(scalar)          paramOut(cp, #scalar, (int)scalar)
 
+/**
+ * \def UNSERIALIZE_ENUM(scaler)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_ENUM(scalar)                        \
     do {                                                \
         int tmp;                                        \
@@ -655,31 +824,82 @@ objParamIn(CheckpointIn &cp, const std::string &name, SimObject * &param);
         scalar = static_cast<decltype(scalar)>(tmp);    \
     } while (0)
 
+/**
+ * \def SERIALIZE_ARRAY(member, size)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_ARRAY(member, size)           \
         arrayParamOut(cp, #member, member, size)
 
+/**
+ * \def UNSERIALIZE_ARRAY(member, size)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_ARRAY(member, size)         \
         arrayParamIn(cp, #member, member, size)
 
+/**
+ * \def SERIALIZE_CONTAINER(member)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_CONTAINER(member)             \
         arrayParamOut(cp, #member, member)
 
+/**
+ * \def UNSERIALIZE_CONTAINER(member)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_CONTAINER(member)           \
         arrayParamIn(cp, #member, member)
 
+/**
+ * \def SERIALIZE_EVENT(event)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_EVENT(event) event.serializeSection(cp, #event);
 
+/**
+ * \def UNSERIALIZE_EVENT(event)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_EVENT(event)                        \
     do {                                                \
         event.unserializeSection(cp, #event);           \
         eventQueue()->checkpointReschedule(&event);     \
     } while (0)
 
+/**
+ * \def SERIALIZE_OBJ(obj)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_OBJ(obj) obj.serializeSection(cp, #obj)
+
+/**
+ * \def UNSERIALIZE_OBJ(obj)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_OBJ(obj) obj.unserializeSection(cp, #obj)
 
+/**
+ * \def SERIALIZE_OBJPTR(objptr)
+ *
+ * @ingroup api_serialize
+ */
 #define SERIALIZE_OBJPTR(objptr)        paramOut(cp, #objptr, (objptr)->name())
 
+/**
+ * \def UNSERIALIZE_OBJPTR(objptr)
+ *
+ * @ingroup api_serialize
+ */
 #define UNSERIALIZE_OBJPTR(objptr)                      \
     do {                                                \
         SimObject *sptr;                                \

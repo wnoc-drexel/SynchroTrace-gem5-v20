@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016-2018 ARM Limited
+ * Copyright (c) 2011, 2016-2018, 2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_CHECKER_CPU_HH__
@@ -91,7 +89,7 @@ class CheckerCPU : public BaseCPU, public ExecContext
     using VecRegContainer = TheISA::VecRegContainer;
 
     /** id attached to all issued requests */
-    MasterID masterId;
+    RequestorID requestorId;
   public:
     void init() override;
 
@@ -101,11 +99,12 @@ class CheckerCPU : public BaseCPU, public ExecContext
 
     void setSystem(System *system);
 
-    void setIcachePort(MasterPort *icache_port);
+    void setIcachePort(RequestPort *icache_port);
 
-    void setDcachePort(MasterPort *dcache_port);
+    void setDcachePort(RequestPort *dcache_port);
 
-    MasterPort &getDataPort() override
+    Port &
+    getDataPort() override
     {
         // the checker does not have ports on its own so return the
         // data port of the actual CPU core
@@ -113,7 +112,8 @@ class CheckerCPU : public BaseCPU, public ExecContext
         return *dcachePort;
     }
 
-    MasterPort &getInstPort() override
+    Port &
+    getInstPort() override
     {
         // the checker does not have ports on its own so return the
         // data port of the actual CPU core
@@ -127,15 +127,13 @@ class CheckerCPU : public BaseCPU, public ExecContext
 
     System *systemPtr;
 
-    MasterPort *icachePort;
-    MasterPort *dcachePort;
+    RequestPort *icachePort;
+    RequestPort *dcachePort;
 
     ThreadContext *tc;
 
     BaseTLB *itb;
     BaseTLB *dtb;
-
-    Addr dbg_vtophys(Addr addr);
 
     // ISAs like ARM can have multiple destination registers to check,
     // keep them all in a std::queue
@@ -436,6 +434,41 @@ class CheckerCPU : public BaseCPU, public ExecContext
         thread->setMemAccPredicate(val);
     }
 
+    uint64_t
+    getHtmTransactionUid() const override
+    {
+        panic("not yet supported!");
+        return 0;
+    };
+
+    uint64_t
+    newHtmTransactionUid() const override
+    {
+        panic("not yet supported!");
+        return 0;
+    };
+
+    Fault
+    initiateHtmCmd(Request::Flags flags) override
+    {
+        panic("not yet supported!");
+        return NoFault;
+    }
+
+    bool
+    inHtmTransactionalState() const override
+    {
+        panic("not yet supported!");
+        return false;
+    }
+
+    uint64_t
+    getHtmTransactionalDepth() const override
+    {
+        panic("not yet supported!");
+        return 0;
+    }
+
     TheISA::PCState pcState() const override { return thread->pcState(); }
     void
     pcState(const TheISA::PCState &val) override
@@ -554,16 +587,16 @@ class CheckerCPU : public BaseCPU, public ExecContext
 
     Fault readMem(Addr addr, uint8_t *data, unsigned size,
                   Request::Flags flags,
-                  const std::vector<bool>& byteEnable = std::vector<bool>())
+                  const std::vector<bool>& byte_enable = std::vector<bool>())
         override;
 
     Fault writeMem(uint8_t *data, unsigned size, Addr addr,
                    Request::Flags flags, uint64_t *res,
-                   const std::vector<bool>& byteEnable = std::vector<bool>())
+                   const std::vector<bool>& byte_enable = std::vector<bool>())
         override;
 
     Fault amoMem(Addr addr, uint8_t* data, unsigned size,
-                 Request::Flags flags, AtomicOpFunctor *amo_op) override
+                 Request::Flags flags, AtomicOpFunctorPtr amo_op) override
     {
         panic("AMO is not supported yet in CPU checker\n");
     }
@@ -579,7 +612,7 @@ class CheckerCPU : public BaseCPU, public ExecContext
     void wakeup(ThreadID tid) override { }
     // Assume that the normal CPU's call to syscall was successful.
     // The checker's state would have already been updated by the syscall.
-    void syscall(int64_t callnum, Fault *fault) override { }
+    void syscall() override { }
 
     void
     handleError()
@@ -593,7 +626,7 @@ class CheckerCPU : public BaseCPU, public ExecContext
 
     void dumpAndExit();
 
-    ThreadContext *tcBase() override { return tc; }
+    ThreadContext *tcBase() const override { return tc; }
     SimpleThread *threadBase() { return thread; }
 
     InstResult unverifiedResult;

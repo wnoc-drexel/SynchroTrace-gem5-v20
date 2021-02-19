@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Geoffrey Blake
  */
 
 #include "cpu/checker/cpu.hh"
@@ -47,7 +44,6 @@
 #include <string>
 
 #include "arch/generic/tlb.hh"
-#include "arch/vtophys.hh"
 #include "cpu/base.hh"
 #include "cpu/simple_thread.hh"
 #include "cpu/static_inst.hh"
@@ -62,7 +58,7 @@ using namespace TheISA;
 void
 CheckerCPU::init()
 {
-    masterId = systemPtr->getMasterId(this);
+    requestorId = systemPtr->getRequestorId(this);
 }
 
 CheckerCPU::CheckerCPU(Params *p)
@@ -103,8 +99,7 @@ CheckerCPU::setSystem(System *system)
     systemPtr = system;
 
     if (FullSystem) {
-        thread = new SimpleThread(this, 0, systemPtr, itb, dtb,
-                                  p->isa[0], false);
+        thread = new SimpleThread(this, 0, systemPtr, itb, dtb, p->isa[0]);
     } else {
         thread = new SimpleThread(this, 0, systemPtr,
                                   workload.size() ? workload[0] : NULL,
@@ -113,19 +108,18 @@ CheckerCPU::setSystem(System *system)
 
     tc = thread->getTC();
     threadContexts.push_back(tc);
-    thread->kernelStats = NULL;
     // Thread should never be null after this
     assert(thread != NULL);
 }
 
 void
-CheckerCPU::setIcachePort(MasterPort *icache_port)
+CheckerCPU::setIcachePort(RequestPort *icache_port)
 {
     icachePort = icache_port;
 }
 
 void
-CheckerCPU::setDcachePort(MasterPort *dcache_port)
+CheckerCPU::setDcachePort(RequestPort *dcache_port)
 {
     dcachePort = dcache_port;
 }
@@ -159,14 +153,14 @@ CheckerCPU::genMemFragmentRequest(Addr frag_addr, int size,
                                                         size_left));
         auto it_end = byte_enable.cbegin() + (size - size_left);
         if (isAnyActiveElement(it_start, it_end)) {
-            mem_req = std::make_shared<Request>(0, frag_addr, frag_size,
-                    flags, masterId, thread->pcState().instAddr(),
+            mem_req = std::make_shared<Request>(frag_addr, frag_size,
+                    flags, requestorId, thread->pcState().instAddr(),
                     tc->contextId());
             mem_req->setByteEnable(std::vector<bool>(it_start, it_end));
         }
     } else {
-        mem_req = std::make_shared<Request>(0, frag_addr, frag_size,
-                    flags, masterId, thread->pcState().instAddr(),
+        mem_req = std::make_shared<Request>(frag_addr, frag_size,
+                    flags, requestorId, thread->pcState().instAddr(),
                     tc->contextId());
     }
 
@@ -176,8 +170,10 @@ CheckerCPU::genMemFragmentRequest(Addr frag_addr, int size,
 Fault
 CheckerCPU::readMem(Addr addr, uint8_t *data, unsigned size,
                     Request::Flags flags,
-                    const std::vector<bool>& byteEnable)
+                    const std::vector<bool>& byte_enable)
 {
+    assert(byte_enable.empty() || byte_enable.size() == size);
+
     Fault fault = NoFault;
     bool checked_flags = false;
     bool flags_match = true;
@@ -191,7 +187,7 @@ CheckerCPU::readMem(Addr addr, uint8_t *data, unsigned size,
     // Need to account for multiple accesses like the Atomic and TimingSimple
     while (1) {
         RequestPtr mem_req = genMemFragmentRequest(frag_addr, size, flags,
-                                                   byteEnable, frag_size,
+                                                   byte_enable, frag_size,
                                                    size_left);
 
         predicate = (mem_req != nullptr);
@@ -215,7 +211,7 @@ CheckerCPU::readMem(Addr addr, uint8_t *data, unsigned size,
 
             pkt->dataStatic(data);
 
-            if (!(mem_req->isUncacheable() || mem_req->isMmappedIpr())) {
+            if (!(mem_req->isUncacheable() || mem_req->isLocalAccess())) {
                 // Access memory to see if we have the same data
                 dcachePort->sendFunctional(pkt);
             } else {
@@ -258,9 +254,9 @@ CheckerCPU::readMem(Addr addr, uint8_t *data, unsigned size,
 Fault
 CheckerCPU::writeMem(uint8_t *data, unsigned size,
                      Addr addr, Request::Flags flags, uint64_t *res,
-                     const std::vector<bool>& byteEnable)
+                     const std::vector<bool>& byte_enable)
 {
-    assert(byteEnable.empty() || byteEnable.size() == size);
+    assert(byte_enable.empty() || byte_enable.size() == size);
 
     Fault fault = NoFault;
     bool checked_flags = false;
@@ -276,7 +272,7 @@ CheckerCPU::writeMem(uint8_t *data, unsigned size,
     // Need to account for a multiple access like Atomic and Timing CPUs
     while (1) {
         RequestPtr mem_req = genMemFragmentRequest(frag_addr, size, flags,
-                                                   byteEnable, frag_size,
+                                                   byte_enable, frag_size,
                                                    size_left);
 
         predicate = (mem_req != nullptr);
@@ -355,12 +351,6 @@ CheckerCPU::writeMem(uint8_t *data, unsigned size,
    }
 
    return fault;
-}
-
-Addr
-CheckerCPU::dbg_vtophys(Addr addr)
-{
-    return vtophys(tc, addr);
 }
 
 /**

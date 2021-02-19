@@ -1,7 +1,7 @@
 /*
  * Copyright 2015 LabWare
  * Copyright 2014 Google, Inc.
- * Copyright (c) 2013, 2016, 2018 ARM Limited
+ * Copyright (c) 2013, 2016, 2018-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -39,10 +39,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Stephen Hines
- *          Boris Shingarov
  */
 
 #ifndef __ARCH_ARM_REMOTE_GDB_HH__
@@ -97,7 +93,7 @@ class RemoteGDB : public BaseRemoteGDB
           uint64_t spx;
           uint64_t pc;
           uint32_t cpsr;
-          VecElem v[NumVecV8ArchRegs * NumVecElemPerVecReg];
+          VecElem v[NumVecV8ArchRegs * NumVecElemPerNeonVecReg];
           uint32_t fpsr;
           uint32_t fpcr;
         } M5_ATTR_PACKED r;

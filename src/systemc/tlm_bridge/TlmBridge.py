@@ -22,8 +22,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
 from m5.objects.SystemC import SystemC_ScModule
 from m5.params import *
@@ -39,7 +37,7 @@ class Gem5ToTlmBridgeBase(SystemC_ScModule):
 
     system = Param.System(Parent.any, "system")
 
-    gem5 = SlavePort('gem5 slave port')
+    gem5 = ResponsePort('gem5 response port')
     addr_ranges = VectorParam.AddrRange([],
             'Addresses served by this port\'s TLM side')
 
@@ -51,7 +49,7 @@ class TlmToGem5BridgeBase(SystemC_ScModule):
 
     system = Param.System(Parent.any, "system")
 
-    gem5 = MasterPort('gem5 master port')
+    gem5 = RequestPort('gem5 request port')
 
 
 class Gem5ToTlmBridge32(Gem5ToTlmBridgeBase):

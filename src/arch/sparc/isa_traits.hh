@@ -24,36 +24,20 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Ali Saidi
  */
 
 #ifndef __ARCH_SPARC_ISA_TRAITS_HH__
 #define __ARCH_SPARC_ISA_TRAITS_HH__
 
-#include "arch/sparc/sparc_traits.hh"
-#include "arch/sparc/types.hh"
 #include "base/types.hh"
-#include "cpu/static_inst_fwd.hh"
-
-namespace BigEndianGuest {}
 
 namespace SparcISA
 {
-// This makes sure the big endian versions of certain functions are used.
-using namespace BigEndianGuest;
+
+const ByteOrder GuestByteOrder = ByteOrder::big;
 
 const Addr PageShift = 13;
 const Addr PageBytes = ULL(1) << PageShift;
-
-StaticInstPtr decodeInst(ExtMachInst);
-
-// Memory accesses cannot be unaligned
-const bool HasUnalignedMemAcc = false;
-
-const bool CurThreadInfoImplemented = false;
-const int CurThreadInfoReg = -1;
 
 }
 

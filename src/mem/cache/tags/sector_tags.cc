@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /**
@@ -53,7 +51,8 @@ SectorTags::SectorTags(const SectorTagsParams *p)
       replacementPolicy(p->replacement_policy),
       numBlocksPerSector(p->num_blocks_per_sector),
       numSectors(numBlocks / numBlocksPerSector),
-      sectorShift(floorLog2(blkSize)), sectorMask(numBlocksPerSector - 1)
+      sectorShift(floorLog2(blkSize)), sectorMask(numBlocksPerSector - 1),
+      sectorStats(stats, *this)
 {
     // Check parameters
     fatal_if(blkSize < 4 || !isPowerOf2(blkSize),
@@ -76,9 +75,6 @@ SectorTags::tagsInit()
     {
         // Locate next cache sector
         SectorBlk* sec_blk = &secBlks[sec_blk_index];
-
-        // Link block to indexing policy
-        indexingPolicy->setEntry(sec_blk, sec_blk_index);
 
         // Associate a replacement data entry to the sector
         sec_blk->replacementData = replacementPolicy->instantiateEntry();
@@ -107,6 +103,9 @@ SectorTags::tagsInit()
             // Update block index
             ++blk_index;
         }
+
+        // Link block to indexing policy
+        indexingPolicy->setEntry(sec_blk, sec_blk_index);
     }
 }
 
@@ -125,7 +124,7 @@ SectorTags::invalidate(CacheBlk *blk)
     // in the sector.
     if (!sector_blk->isValid()) {
         // Decrease the number of tags in use
-        tagsInUse--;
+        stats.tagsInUse--;
 
         // Invalidate replacement data, as we're invalidating the sector
         replacementPolicy->invalidate(sector_blk->replacementData);
@@ -140,13 +139,13 @@ SectorTags::accessBlock(Addr addr, bool is_secure, Cycles &lat)
     // Access all tags in parallel, hence one in each way.  The data side
     // either accesses all blocks in parallel, or one block sequentially on
     // a hit.  Sequential access with a miss doesn't access data.
-    tagAccesses += allocAssoc;
+    stats.tagAccesses += allocAssoc;
     if (sequentialAccess) {
         if (blk != nullptr) {
-            dataAccesses += 1;
+            stats.dataAccesses += 1;
         }
     } else {
-        dataAccesses += allocAssoc*numBlocksPerSector;
+        stats.dataAccesses += allocAssoc*numBlocksPerSector;
     }
 
     // If a cache hit
@@ -183,7 +182,7 @@ SectorTags::insertBlock(const PacketPtr pkt, CacheBlk *blk)
         replacementPolicy->touch(sector_blk->replacementData);
     } else {
         // Increment tag counter
-        tagsInUse++;
+        stats.tagsInUse++;
 
         // A new entry resets the replacement data
         replacementPolicy->reset(sector_blk->replacementData);
@@ -222,7 +221,7 @@ SectorTags::findBlock(Addr addr, bool is_secure) const
 
 CacheBlk*
 SectorTags::findVictim(Addr addr, const bool is_secure, const std::size_t size,
-                       std::vector<CacheBlk*>& evict_blks) const
+                       std::vector<CacheBlk*>& evict_blks)
 {
     // Get possible entries to be victimized
     const std::vector<ReplaceableEntry*> sector_entries =
@@ -260,9 +259,14 @@ SectorTags::findVictim(Addr addr, const bool is_secure, const std::size_t size,
     } else {
         // The whole sector must be evicted to make room for the new sector
         for (const auto& blk : victim_sector->blks){
-            evict_blks.push_back(blk);
+            if (blk->isValid()) {
+                evict_blks.push_back(blk);
+            }
         }
     }
+
+    // Update number of sub-blocks evicted due to a replacement
+    sectorStats.evictionsReplacement[evict_blks.size()]++;
 
     return victim;
 }
@@ -280,6 +284,27 @@ SectorTags::regenerateBlkAddr(const CacheBlk* blk) const
     const SectorBlk* sec_blk = blk_cast->getSectorBlock();
     const Addr sec_addr = indexingPolicy->regenerateAddr(blk->tag, sec_blk);
     return sec_addr | ((Addr)blk_cast->getSectorOffset() << sectorShift);
+}
+
+SectorTags::SectorTagsStats::SectorTagsStats(BaseTagStats &base_group,
+    SectorTags& _tags)
+  : Stats::Group(&base_group), tags(_tags),
+    evictionsReplacement(this, "evictions_replacement",
+        "Number of blocks evicted due to a replacement")
+{
+}
+
+void
+SectorTags::SectorTagsStats::regStats()
+{
+    Stats::Group::regStats();
+
+    evictionsReplacement.init(tags.numBlocksPerSector + 1);
+    for (unsigned i = 0; i <= tags.numBlocksPerSector; ++i) {
+        evictionsReplacement.subname(i, std::to_string(i));
+        evictionsReplacement.subdesc(i, "Number of replacements that caused " \
+            "the eviction of " + std::to_string(i) + " blocks");
+    }
 }
 
 void

@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stan Czerniawski
- *          Damian Richardson
  */
 
 #include "dev/arm/smmu_v3_caches.hh"
@@ -258,6 +255,34 @@ SMMUTLB::store(const Entry &incoming, AllocPolicy alloc)
 }
 
 void
+SMMUTLB::invalidateSSID(uint32_t sid, uint32_t ssid)
+{
+    Set &set = sets[pickSetIdx(sid, ssid)];
+
+    for (size_t i = 0; i < set.size(); i++) {
+        Entry &e = set[i];
+
+        if (e.sid == sid && e.ssid == ssid)
+            e.valid = false;
+    }
+}
+
+void
+SMMUTLB::invalidateSID(uint32_t sid)
+{
+    for (size_t s = 0; s < sets.size(); s++) {
+        Set &set = sets[s];
+
+        for (size_t i = 0; i < set.size(); i++) {
+            Entry &e = set[i];
+
+            if (e.sid == sid)
+                e.valid = false;
+        }
+    }
+}
+
+void
 SMMUTLB::invalidateVA(Addr va, uint16_t asid, uint16_t vmid)
 {
     Set &set = sets[pickSetIdx(va)];
@@ -331,6 +356,12 @@ size_t
 SMMUTLB::pickSetIdx(Addr va) const
 {
     return (va >> 12) % sets.size();
+}
+
+size_t
+SMMUTLB::pickSetIdx(uint32_t sid, uint32_t ssid) const
+{
+    return (sid^ssid) % sets.size();
 }
 
 size_t
@@ -1049,21 +1080,55 @@ WalkCache::store(const Entry &incoming)
 }
 
 void
-WalkCache::invalidateVA(Addr va, uint16_t asid, uint16_t vmid)
+WalkCache::invalidateVA(Addr va, uint16_t asid, uint16_t vmid,
+                        const bool leaf_only)
 {
-    panic("%s unimplemented\n", __func__);
+    for (size_t s = 0; s < sets.size(); s++) {
+        Set &set = sets[s];
+
+        for (size_t i = 0; i < set.size(); i++) {
+            Entry &e = set[i];
+
+            if ((!leaf_only || e.leaf) && (e.va & e.vaMask) == (va & e.vaMask)
+                && e.asid == asid && e.vmid == vmid)
+            {
+                e.valid = false;
+            }
+        }
+    }
 }
 
 void
-WalkCache::invalidateVAA(Addr va, uint16_t vmid)
+WalkCache::invalidateVAA(Addr va, uint16_t vmid, const bool leaf_only)
 {
-    panic("%s unimplemented\n", __func__);
+    for (size_t s = 0; s < sets.size(); s++) {
+        Set &set = sets[s];
+
+        for (size_t i = 0; i < set.size(); i++) {
+            Entry &e = set[i];
+
+            if ((!leaf_only || e.leaf) && (e.va & e.vaMask) == (va & e.vaMask)
+                && e.vmid == vmid)
+            {
+                e.valid = false;
+            }
+        }
+    }
 }
 
 void
 WalkCache::invalidateASID(uint16_t asid, uint16_t vmid)
 {
-    panic("%s unimplemented\n", __func__);
+    for (size_t s = 0; s < sets.size(); s++) {
+        Set &set = sets[s];
+
+        for (size_t i = 0; i < set.size(); i++) {
+            Entry &e = set[i];
+
+            if (e.asid==asid && e.vmid==vmid)
+                e.valid = false;
+        }
+    }
 }
 
 void

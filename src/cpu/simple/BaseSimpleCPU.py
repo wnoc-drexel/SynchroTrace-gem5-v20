@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
 from __future__ import print_function
 
@@ -42,11 +40,11 @@ class BaseSimpleCPU(BaseCPU):
 
     def addCheckerCpu(self):
         if buildEnv['TARGET_ISA'] in ['arm']:
-            from m5.objects.ArmTLB import ArmTLB
+            from m5.objects.ArmTLB import ArmITB, ArmDTB
 
             self.checker = DummyChecker(workload = self.workload)
-            self.checker.itb = ArmTLB(size = self.itb.size)
-            self.checker.dtb = ArmTLB(size = self.dtb.size)
+            self.checker.itb = ArmITB(size = self.itb.size)
+            self.checker.dtb = ArmDTB(size = self.dtb.size)
         else:
             print("ERROR: Checker only supported under ARM ISA!")
             exit(1)

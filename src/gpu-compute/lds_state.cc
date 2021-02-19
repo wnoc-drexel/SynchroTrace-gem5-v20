@@ -29,9 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: John Kalamatianos,
- *          Joe Gross
  */
 
 #include "gpu-compute/lds_state.hh"
@@ -213,8 +210,8 @@ LdsState::processPacket(PacketPtr packet)
         parent->loadBusLength();
     // delay for accessing the LDS
     Tick processingTime =
-        parent->shader->ticks(bankConflicts * bankConflictPenalty) +
-        parent->shader->ticks(busLength);
+        parent->cyclesToTicks(Cycles(bankConflicts * bankConflictPenalty)) +
+        parent->cyclesToTicks(Cycles(busLength));
     // choose (delay + last packet in queue) or (now + delay) as the time to
     // return this
     Tick doneAt = earliestReturnTime() + processingTime;

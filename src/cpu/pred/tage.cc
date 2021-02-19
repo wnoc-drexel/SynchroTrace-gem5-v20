@@ -29,9 +29,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vignyan Reddy, Dibakar Gope and Arthur Perais,
- * from André Seznec's code.
  */
 
 /* @file
@@ -60,8 +57,6 @@ TAGE::update(ThreadID tid, Addr branch_pc, bool taken, void* bp_history,
 
     TageBranchInfo *bi = static_cast<TageBranchInfo*>(bp_history);
     TAGEBase::BranchInfo *tage_bi = bi->tageBranchInfo;
-
-    assert(corrTarget != MaxAddr);
 
     if (squashed) {
         // This restores the global history, then update it

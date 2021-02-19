@@ -1,4 +1,16 @@
 /*
+ * Copyright (c) 2019 ARM Limited
+ * All rights reserved
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
  * Copyright (c) 2018 Metempsy Technology Consulting
  * All rights reserved.
  *
@@ -24,17 +36,18 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jairo Balart
  */
 
 #include "dev/arm/gic_v3_cpu_interface.hh"
 
+#include "arch/arm/faults.hh"
 #include "arch/arm/isa.hh"
 #include "debug/GIC.hh"
 #include "dev/arm/gic_v3.hh"
 #include "dev/arm/gic_v3_distributor.hh"
 #include "dev/arm/gic_v3_redistributor.hh"
+
+using namespace ArmISA;
 
 const uint8_t Gicv3CPUInterface::GIC_MIN_BPR;
 const uint8_t Gicv3CPUInterface::GIC_MIN_BPR_NS;
@@ -46,6 +59,8 @@ Gicv3CPUInterface::Gicv3CPUInterface(Gicv3 * gic, uint32_t cpu_id)
       distributor(nullptr),
       cpuId(cpu_id)
 {
+    hppi.prio = 0xff;
+    hppi.intid = Gicv3::INTID_SPURIOUS;
 }
 
 void
@@ -56,21 +71,18 @@ Gicv3CPUInterface::init()
 }
 
 void
-Gicv3CPUInterface::initState()
+Gicv3CPUInterface::resetHppi(uint32_t intid)
 {
-    reset();
-}
-
-void
-Gicv3CPUInterface::reset()
-{
-    hppi.prio = 0xff;
+    if (intid == hppi.intid)
+        hppi.prio = 0xff;
 }
 
 void
 Gicv3CPUInterface::setThreadContext(ThreadContext *tc)
 {
     maintenanceInterrupt = gic->params()->maint_int->get(tc);
+    fatal_if(maintenanceInterrupt->num() >= redistributor->irqPending.size(),
+        "Invalid maintenance interrupt number\n");
 }
 
 bool
@@ -116,7 +128,7 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
               return isa->readMiscRegNoEffect(MISCREG_ICV_AP1R0_EL1);
           }
 
-          break;
+          return readBankedMiscReg(MISCREG_ICC_AP1R0_EL1);
       }
 
       case MISCREG_ICC_AP1R1:
@@ -179,6 +191,7 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
               return readMiscReg(MISCREG_ICV_IGRPEN1_EL1);
           }
 
+          value = readBankedMiscReg(MISCREG_ICC_IGRPEN1_EL1);
           break;
       }
 
@@ -191,8 +204,17 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
 
       // Interrupt Group 1 Enable register EL3
       case MISCREG_ICC_MGRPEN1:
-      case MISCREG_ICC_IGRPEN1_EL3:
+      case MISCREG_ICC_IGRPEN1_EL3: {
+          ICC_IGRPEN1_EL3 igrp_el3 = 0;
+          igrp_el3.EnableGrp1S = ((ICC_IGRPEN1_EL1)isa->readMiscRegNoEffect(
+              MISCREG_ICC_IGRPEN1_EL1_S)).Enable;
+
+          igrp_el3.EnableGrp1NS = ((ICC_IGRPEN1_EL1)isa->readMiscRegNoEffect(
+              MISCREG_ICC_IGRPEN1_EL1_NS)).Enable;
+
+          value = igrp_el3;
           break;
+      }
 
       // Running Priority Register
       case MISCREG_ICC_RPR:
@@ -292,102 +314,45 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
 
       // Binary Point Register 0
       case MISCREG_ICC_BPR0:
-      case MISCREG_ICC_BPR0_EL1:
+      case MISCREG_ICC_BPR0_EL1: {
         if ((currEL() == EL1) && !inSecureState() && hcr_fmo) {
             return readMiscReg(MISCREG_ICV_BPR0_EL1);
         }
 
-        M5_FALLTHROUGH;
+        value = isa->readMiscRegNoEffect(MISCREG_ICC_BPR0_EL1);
+        break;
+      }
 
       // Binary Point Register 1
       case MISCREG_ICC_BPR1:
       case MISCREG_ICC_BPR1_EL1: {
-            if ((currEL() == EL1) && !inSecureState() && hcr_imo) {
-                return readMiscReg(MISCREG_ICV_BPR1_EL1);
-            }
+        value = bpr1(isSecureBelowEL3() ? Gicv3::G1S : Gicv3::G1NS);
+        break;
+      }
 
-            Gicv3::GroupId group =
-                misc_reg == MISCREG_ICC_BPR0_EL1 ? Gicv3::G0S : Gicv3::G1S;
+      // Virtual Binary Point Register 0
+      case MISCREG_ICV_BPR0_EL1: {
+        ICH_VMCR_EL2 ich_vmcr_el2 =
+            isa->readMiscRegNoEffect(MISCREG_ICH_VMCR_EL2);
 
-            if (group == Gicv3::G1S && !inSecureState()) {
-                group = Gicv3::G1NS;
-            }
-
-            ICC_CTLR_EL1 icc_ctlr_el1_s =
-                isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_S);
-
-            if ((group == Gicv3::G1S) && !isEL3OrMon() &&
-                icc_ctlr_el1_s.CBPR) {
-                group = Gicv3::G0S;
-            }
-
-            bool sat_inc = false;
-
-            ICC_CTLR_EL1 icc_ctlr_el1_ns =
-                isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_NS);
-
-            if ((group == Gicv3::G1NS) && (currEL() < EL3) &&
-                icc_ctlr_el1_ns.CBPR) {
-                // Reads return BPR0 + 1 saturated to 7, WI
-                group = Gicv3::G0S;
-                sat_inc = true;
-            }
-
-            uint8_t bpr;
-
-            if (group == Gicv3::G0S) {
-                bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR0_EL1);
-            } else {
-                bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR1_EL1);
-                bpr = std::max(bpr, group == Gicv3::G1S ?
-                    GIC_MIN_BPR : GIC_MIN_BPR_NS);
-            }
-
-            if (sat_inc) {
-                bpr++;
-
-                if (bpr > 7) {
-                    bpr = 7;
-                }
-            }
-
-            value = bpr;
-            break;
+        value = ich_vmcr_el2.VBPR0;
+        break;
       }
 
       // Virtual Binary Point Register 1
-      case MISCREG_ICV_BPR0_EL1:
       case MISCREG_ICV_BPR1_EL1: {
-          Gicv3::GroupId group =
-              misc_reg == MISCREG_ICV_BPR0_EL1 ? Gicv3::G0S : Gicv3::G1NS;
-          ICH_VMCR_EL2 ich_vmcr_el2 =
-              isa->readMiscRegNoEffect(MISCREG_ICH_VMCR_EL2);
-          bool sat_inc = false;
+        ICH_VMCR_EL2 ich_vmcr_el2 =
+            isa->readMiscRegNoEffect(MISCREG_ICH_VMCR_EL2);
 
-          if ((group == Gicv3::G1NS) && ich_vmcr_el2.VCBPR) {
-              // bpr0 + 1 saturated to 7, WI
-              group = Gicv3::G0S;
-              sat_inc = true;
-          }
+        if (ich_vmcr_el2.VCBPR) {
+            // bpr0 + 1 saturated to 7, WI
+            value = ich_vmcr_el2.VBPR0 + 1;
+            value = value < 7 ? value : 7;
+        } else {
+            value = ich_vmcr_el2.VBPR1;
+        }
 
-          uint8_t vbpr;
-
-          if (group == Gicv3::G0S) {
-              vbpr = ich_vmcr_el2.VBPR0;
-          } else {
-              vbpr = ich_vmcr_el2.VBPR1;
-          }
-
-          if (sat_inc) {
-              vbpr++;
-
-              if (vbpr > 7) {
-                  vbpr = 7;
-              }
-          }
-
-          value = vbpr;
-          break;
+        break;
       }
 
       // Interrupt Priority Mask Register
@@ -598,6 +563,7 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
               return readMiscReg(MISCREG_ICV_CTLR_EL1);
           }
 
+          value = readBankedMiscReg(MISCREG_ICC_CTLR_EL1);
           // Enforce value for RO bits
           // ExtRange [19], INTIDs in the range 1024..8191 not supported
           // RSS [18], SGIs with affinity level 0 values of 0-255 are supported
@@ -663,10 +629,34 @@ Gicv3CPUInterface::readMiscReg(int misc_reg)
       case MISCREG_ICH_AP0R0_EL2:
         break;
 
+      // only implemented if supporting 6 or more bits of priority
+      case MISCREG_ICH_AP0R1:
+      case MISCREG_ICH_AP0R1_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP0R2:
+      case MISCREG_ICH_AP0R2_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP0R3:
+      case MISCREG_ICH_AP0R3_EL2:
+        // Unimplemented registers are RAZ/WI
+        return 0;
+
       // Hyp Active Priorities Group 1 Registers
       case MISCREG_ICH_AP1R0:
       case MISCREG_ICH_AP1R0_EL2:
         break;
+
+      // only implemented if supporting 6 or more bits of priority
+      case MISCREG_ICH_AP1R1:
+      case MISCREG_ICH_AP1R1_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP1R2:
+      case MISCREG_ICH_AP1R2_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP1R3:
+      case MISCREG_ICH_AP1R3_EL2:
+        // Unimplemented registers are RAZ/WI
+        return 0;
 
       // Maintenance Interrupt State Register
       case MISCREG_ICH_MISR:
@@ -760,7 +750,8 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
             return isa->setMiscRegNoEffect(MISCREG_ICV_AP1R0_EL1, val);
         }
 
-        break;
+        setBankedMiscReg(MISCREG_ICC_AP1R0_EL1, val);
+        return;
 
       case MISCREG_ICC_AP1R1:
       case MISCREG_ICC_AP1R1_EL1:
@@ -1057,51 +1048,48 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
 
       // Binary Point Register 0
       case MISCREG_ICC_BPR0:
-      case MISCREG_ICC_BPR0_EL1:
+      case MISCREG_ICC_BPR0_EL1: {
+        if ((currEL() == EL1) && !inSecureState() && hcr_fmo) {
+            return setMiscReg(MISCREG_ICV_BPR0_EL1, val);
+        }
+        break;
+      }
       // Binary Point Register 1
       case MISCREG_ICC_BPR1:
       case MISCREG_ICC_BPR1_EL1: {
-          if ((currEL() == EL1) && !inSecureState()) {
-              if (misc_reg == MISCREG_ICC_BPR0_EL1 && hcr_fmo) {
-                  return setMiscReg(MISCREG_ICV_BPR0_EL1, val);
-              } else if (misc_reg == MISCREG_ICC_BPR1_EL1 && hcr_imo) {
-                  return setMiscReg(MISCREG_ICV_BPR1_EL1, val);
-              }
-          }
+        if ((currEL() == EL1) && !inSecureState() && hcr_imo) {
+            return setMiscReg(MISCREG_ICV_BPR1_EL1, val);
+        }
 
-          Gicv3::GroupId group =
-              misc_reg == MISCREG_ICC_BPR0_EL1 ? Gicv3::G0S : Gicv3::G1S;
+        val &= 0x7;
 
-          if (group == Gicv3::G1S && !inSecureState()) {
-              group = Gicv3::G1NS;
-          }
+        if (isSecureBelowEL3()) {
+            // group == Gicv3::G1S
+            ICC_CTLR_EL1 icc_ctlr_el1_s =
+                isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_S);
 
-          ICC_CTLR_EL1 icc_ctlr_el1_s =
-              isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_S);
+            val = val > GIC_MIN_BPR ? val : GIC_MIN_BPR;
+            if (haveEL(EL3) && !isEL3OrMon() && icc_ctlr_el1_s.CBPR) {
+                isa->setMiscRegNoEffect(MISCREG_ICC_BPR0_EL1, val);
+            } else {
+                isa->setMiscRegNoEffect(MISCREG_ICC_BPR1_EL1_S, val);
+            }
+            return;
+        } else {
+            // group == Gicv3::G1NS
+            ICC_CTLR_EL1 icc_ctlr_el1_ns =
+                isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_NS);
 
-          if ((group == Gicv3::G1S) && !isEL3OrMon() &&
-              icc_ctlr_el1_s.CBPR) {
-              group = Gicv3::G0S;
-          }
+            val = val > GIC_MIN_BPR_NS ? val : GIC_MIN_BPR_NS;
+            if (haveEL(EL3) && !isEL3OrMon() && icc_ctlr_el1_ns.CBPR) {
+                // Non secure writes from EL1 and EL2 are ignored
+            } else {
+                isa->setMiscRegNoEffect(MISCREG_ICC_BPR1_EL1_NS, val);
+            }
+            return;
+        }
 
-          ICC_CTLR_EL1 icc_ctlr_el1_ns =
-              isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_NS);
-
-          if ((group == Gicv3::G1NS) && (currEL() < EL3) &&
-              icc_ctlr_el1_ns.CBPR) {
-              // BPR0 + 1 saturated to 7, WI
-              return;
-          }
-
-          uint8_t min_val = (group == Gicv3::G1NS) ?
-              GIC_MIN_BPR_NS : GIC_MIN_BPR;
-          val &= 0x7;
-
-          if (val < min_val) {
-              val = min_val;
-          }
-
-          break;
+        break;
       }
 
       // Virtual Binary Point Register 0
@@ -1156,7 +1144,7 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
            */
           ICC_CTLR_EL1 requested_icc_ctlr_el1 = val;
           ICC_CTLR_EL1 icc_ctlr_el1 =
-              isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1);
+              readBankedMiscReg(MISCREG_ICC_CTLR_EL1);
 
           ICC_CTLR_EL3 icc_ctlr_el3 =
               isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL3);
@@ -1214,8 +1202,8 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
 
           isa->setMiscRegNoEffect(MISCREG_ICC_CTLR_EL3, icc_ctlr_el3);
 
-          val = icc_ctlr_el1;
-          break;
+          setBankedMiscReg(MISCREG_ICC_CTLR_EL1, icc_ctlr_el1);
+          return;
       }
 
       // Virtual Control Register
@@ -1342,7 +1330,9 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
               return setMiscReg(MISCREG_ICV_IGRPEN0_EL1, val);
           }
 
-          break;
+          isa->setMiscRegNoEffect(MISCREG_ICC_IGRPEN0_EL1, val);
+          updateDistributor();
+          return;
       }
 
       // Virtual Interrupt Group 0 Enable register
@@ -1363,24 +1353,9 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
               return setMiscReg(MISCREG_ICV_IGRPEN1_EL1, val);
           }
 
-          if (haveEL(EL3)) {
-              ICC_IGRPEN1_EL1 icc_igrpen1_el1 = val;
-              ICC_IGRPEN1_EL3 icc_igrpen1_el3 =
-                  isa->readMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL3);
-
-              if (inSecureState()) {
-                  // Enable is RW alias of ICC_IGRPEN1_EL3.EnableGrp1S
-                  icc_igrpen1_el3.EnableGrp1S = icc_igrpen1_el1.Enable;
-              } else {
-                  // Enable is RW alias of ICC_IGRPEN1_EL3.EnableGrp1NS
-                  icc_igrpen1_el3.EnableGrp1NS = icc_igrpen1_el1.Enable;
-              }
-
-              isa->setMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL3,
-                                      icc_igrpen1_el3);
-          }
-
-          break;
+          setBankedMiscReg(MISCREG_ICC_IGRPEN1_EL1, val);
+          updateDistributor();
+          return;
       }
 
       // Virtual Interrupt Group 1 Enable register
@@ -1398,86 +1373,37 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
       case MISCREG_ICC_MGRPEN1:
       case MISCREG_ICC_IGRPEN1_EL3: {
           ICC_IGRPEN1_EL3 icc_igrpen1_el3 = val;
-          ICC_IGRPEN1_EL1 icc_igrpen1_el1 =
-              isa->readMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL1);
 
-          if (inSecureState()) {
-              // ICC_IGRPEN1_EL1.Enable is RW alias of EnableGrp1S
-              icc_igrpen1_el1.Enable = icc_igrpen1_el3.EnableGrp1S;
-          } else {
-              // ICC_IGRPEN1_EL1.Enable is RW alias of EnableGrp1NS
-              icc_igrpen1_el1.Enable = icc_igrpen1_el3.EnableGrp1NS;
-          }
-
-          isa->setMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL1, icc_igrpen1_el1);
-          break;
+          isa->setMiscRegNoEffect(
+              MISCREG_ICC_IGRPEN1_EL1_S, icc_igrpen1_el3.EnableGrp1S);
+          isa->setMiscRegNoEffect(
+              MISCREG_ICC_IGRPEN1_EL1_NS, icc_igrpen1_el3.EnableGrp1NS);
+          updateDistributor();
+          return;
       }
 
       // Software Generated Interrupt Group 0 Register
       case MISCREG_ICC_SGI0R:
       case MISCREG_ICC_SGI0R_EL1:
+        generateSGI(val, Gicv3::G0S);
+        break;
 
       // Software Generated Interrupt Group 1 Register
       case MISCREG_ICC_SGI1R:
-      case MISCREG_ICC_SGI1R_EL1:
+      case MISCREG_ICC_SGI1R_EL1: {
+        Gicv3::GroupId group = inSecureState() ? Gicv3::G1S : Gicv3::G1NS;
+
+        generateSGI(val, group);
+        break;
+      }
 
       // Alias Software Generated Interrupt Group 1 Register
       case MISCREG_ICC_ASGI1R:
       case MISCREG_ICC_ASGI1R_EL1: {
-          bool ns = !inSecureState();
-          Gicv3::GroupId group;
+        Gicv3::GroupId group = inSecureState() ? Gicv3::G1NS : Gicv3::G1S;
 
-          if (misc_reg == MISCREG_ICC_SGI1R_EL1) {
-              group = ns ? Gicv3::G1NS : Gicv3::G1S;
-          } else if (misc_reg == MISCREG_ICC_ASGI1R_EL1) {
-              group = ns ? Gicv3::G1S : Gicv3::G1NS;
-          } else {
-              group = Gicv3::G0S;
-          }
-
-          if (distributor->DS && group == Gicv3::G1S) {
-              group = Gicv3::G0S;
-          }
-
-          uint8_t aff3 = bits(val, 55, 48);
-          uint8_t aff2 = bits(val, 39, 32);
-          uint8_t aff1 = bits(val, 23, 16);;
-          uint16_t target_list = bits(val, 15, 0);
-          uint32_t int_id = bits(val, 27, 24);
-          bool irm = bits(val, 40, 40);
-          uint8_t rs = bits(val, 47, 44);
-
-          for (int i = 0; i < gic->getSystem()->numContexts(); i++) {
-              Gicv3Redistributor * redistributor_i =
-                  gic->getRedistributor(i);
-              uint32_t affinity_i = redistributor_i->getAffinity();
-
-              if (irm) {
-                  // Interrupts routed to all PEs in the system,
-                  // excluding "self"
-                  if (affinity_i == redistributor->getAffinity()) {
-                      continue;
-                  }
-              } else {
-                  // Interrupts routed to the PEs specified by
-                  // Aff3.Aff2.Aff1.<target list>
-                  if ((affinity_i >> 8) !=
-                      ((aff3 << 16) | (aff2 << 8) | (aff1 << 0))) {
-                      continue;
-                  }
-
-                  uint8_t aff0_i = bits(affinity_i, 7, 0);
-
-                  if (!(aff0_i >= rs * 16 && aff0_i < (rs + 1) * 16 &&
-                      ((0x1 << (aff0_i - rs * 16)) & target_list))) {
-                      continue;
-                  }
-              }
-
-              redistributor_i->sendSGI(int_id, group, ns);
-          }
-
-          break;
+        generateSGI(val, group);
+        break;
       }
 
       // System Register Enable Register EL1
@@ -1645,12 +1571,38 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
       }
 
       // Hyp Active Priorities Group 0 Registers
-      case MISCREG_ICH_AP0R0 ... MISCREG_ICH_AP0R3:
-      case MISCREG_ICH_AP0R0_EL2 ... MISCREG_ICH_AP0R3_EL2:
-      // Hyp Active Priorities Group 1 Registers
-      case MISCREG_ICH_AP1R0 ... MISCREG_ICH_AP1R3:
-      case MISCREG_ICH_AP1R0_EL2 ... MISCREG_ICH_AP1R3_EL2:
+      case MISCREG_ICH_AP0R0:
+      case MISCREG_ICH_AP0R0_EL2:
         break;
+
+      // only implemented if supporting 6 or more bits of priority
+      case MISCREG_ICH_AP0R1:
+      case MISCREG_ICH_AP0R1_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP0R2:
+      case MISCREG_ICH_AP0R2_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP0R3:
+      case MISCREG_ICH_AP0R3_EL2:
+        // Unimplemented registers are RAZ/WI
+        return;
+
+      // Hyp Active Priorities Group 1 Registers
+      case MISCREG_ICH_AP1R0:
+      case MISCREG_ICH_AP1R0_EL2:
+        break;
+
+      // only implemented if supporting 6 or more bits of priority
+      case MISCREG_ICH_AP1R1:
+      case MISCREG_ICH_AP1R1_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP1R2:
+      case MISCREG_ICH_AP1R2_EL2:
+      // only implemented if supporting 7 or more bits of priority
+      case MISCREG_ICH_AP1R3:
+      case MISCREG_ICH_AP1R3_EL2:
+        // Unimplemented registers are RAZ/WI
+        return;
 
       default:
         panic("Gicv3CPUInterface::setMiscReg(): unknown register %d (%s)",
@@ -1662,6 +1614,20 @@ Gicv3CPUInterface::setMiscReg(int misc_reg, RegVal val)
     if (do_virtual_update) {
         virtualUpdate();
     }
+}
+
+RegVal
+Gicv3CPUInterface::readBankedMiscReg(MiscRegIndex misc_reg) const
+{
+    return isa->readMiscRegNoEffect(
+        isa->snsBankedIndex64(misc_reg, !isSecureBelowEL3()));
+}
+
+void
+Gicv3CPUInterface::setBankedMiscReg(MiscRegIndex misc_reg, RegVal val) const
+{
+    isa->setMiscRegNoEffect(
+        isa->snsBankedIndex64(misc_reg, !isSecureBelowEL3()), val);
 }
 
 int
@@ -1684,7 +1650,7 @@ Gicv3CPUInterface::virtualFindActive(uint32_t int_id) const
 uint32_t
 Gicv3CPUInterface::getHPPIR0() const
 {
-    if (hppi.prio == 0xff) {
+    if (hppi.prio == 0xff || !groupEnabled(hppi.group)) {
         return Gicv3::INTID_SPURIOUS;
     }
 
@@ -1710,7 +1676,7 @@ Gicv3CPUInterface::getHPPIR0() const
 uint32_t
 Gicv3CPUInterface::getHPPIR1() const
 {
-    if (hppi.prio == 0xff) {
+    if (hppi.prio == 0xff || !groupEnabled(hppi.group)) {
         return Gicv3::INTID_SPURIOUS;
     }
 
@@ -1745,11 +1711,23 @@ Gicv3CPUInterface::getHPPIR1() const
 void
 Gicv3CPUInterface::dropPriority(Gicv3::GroupId group)
 {
-    int apr_misc_reg;
-    RegVal apr;
-    apr_misc_reg = group == Gicv3::G0S ?
-                   MISCREG_ICC_AP0R0_EL1 : MISCREG_ICC_AP1R0_EL1;
-    apr = isa->readMiscRegNoEffect(apr_misc_reg);
+    int apr_misc_reg = 0;
+
+    switch (group) {
+      case Gicv3::G0S:
+        apr_misc_reg = MISCREG_ICC_AP0R0_EL1;
+        break;
+      case Gicv3::G1S:
+        apr_misc_reg = MISCREG_ICC_AP1R0_EL1_S;
+        break;
+      case Gicv3::G1NS:
+        apr_misc_reg = MISCREG_ICC_AP1R0_EL1_NS;
+        break;
+      default:
+        panic("Invalid Gicv3::GroupId");
+    }
+
+    RegVal apr = isa->readMiscRegNoEffect(apr_misc_reg);
 
     if (apr) {
         apr &= apr - 1;
@@ -1790,14 +1768,72 @@ Gicv3CPUInterface::virtualDropPriority()
 }
 
 void
+Gicv3CPUInterface::generateSGI(RegVal val, Gicv3::GroupId group)
+{
+    uint8_t aff3 = bits(val, 55, 48);
+    uint8_t aff2 = bits(val, 39, 32);
+    uint8_t aff1 = bits(val, 23, 16);;
+    uint16_t target_list = bits(val, 15, 0);
+    uint32_t int_id = bits(val, 27, 24);
+    bool irm = bits(val, 40, 40);
+    uint8_t rs = bits(val, 47, 44);
+
+    bool ns = !inSecureState();
+
+    for (int i = 0; i < gic->getSystem()->threads.size(); i++) {
+        Gicv3Redistributor * redistributor_i =
+            gic->getRedistributor(i);
+        uint32_t affinity_i = redistributor_i->getAffinity();
+
+        if (irm) {
+            // Interrupts routed to all PEs in the system,
+            // excluding "self"
+            if (affinity_i == redistributor->getAffinity()) {
+                continue;
+            }
+        } else {
+            // Interrupts routed to the PEs specified by
+            // Aff3.Aff2.Aff1.<target list>
+            if ((affinity_i >> 8) !=
+                ((aff3 << 16) | (aff2 << 8) | (aff1 << 0))) {
+                continue;
+            }
+
+            uint8_t aff0_i = bits(affinity_i, 7, 0);
+
+            if (!(aff0_i >= rs * 16 && aff0_i < (rs + 1) * 16 &&
+                ((0x1 << (aff0_i - rs * 16)) & target_list))) {
+                continue;
+            }
+        }
+
+        redistributor_i->sendSGI(int_id, group, ns);
+    }
+}
+
+void
 Gicv3CPUInterface::activateIRQ(uint32_t int_id, Gicv3::GroupId group)
 {
     // Update active priority registers.
     uint32_t prio = hppi.prio & 0xf8;
     int apr_bit = prio >> (8 - PRIORITY_BITS);
     int reg_bit = apr_bit % 32;
-    int apr_idx = group == Gicv3::G0S ?
-                 MISCREG_ICC_AP0R0_EL1 : MISCREG_ICC_AP1R0_EL1;
+
+    int apr_idx = 0;
+    switch (group) {
+      case Gicv3::G0S:
+        apr_idx = MISCREG_ICC_AP0R0_EL1;
+        break;
+      case Gicv3::G1S:
+        apr_idx = MISCREG_ICC_AP1R0_EL1_S;
+        break;
+      case Gicv3::G1NS:
+        apr_idx = MISCREG_ICC_AP1R0_EL1_NS;
+        break;
+      default:
+        panic("Invalid Gicv3::GroupId");
+    }
+
     RegVal apr = isa->readMiscRegNoEffect(apr_idx);
     apr |= (1 << reg_bit);
     isa->setMiscRegNoEffect(apr_idx, apr);
@@ -1806,15 +1842,19 @@ Gicv3CPUInterface::activateIRQ(uint32_t int_id, Gicv3::GroupId group)
     if (int_id < Gicv3::SGI_MAX + Gicv3::PPI_MAX) {
         // SGI or PPI, redistributor
         redistributor->activateIRQ(int_id);
-        redistributor->updateAndInformCPUInterface();
     } else if (int_id < Gicv3::INTID_SECURE) {
         // SPI, distributor
         distributor->activateIRQ(int_id);
-        distributor->updateAndInformCPUInterfaces();
     } else if (int_id >= Gicv3Redistributor::SMALLEST_LPI_ID) {
         // LPI, Redistributor
         redistributor->setClrLPI(int_id, false);
     }
+
+    // By setting the priority to 0xff we are effectively
+    // making the int_id not pending anymore at the cpu
+    // interface.
+    resetHppi(int_id);
+    updateDistributor();
 }
 
 void
@@ -1844,15 +1884,12 @@ Gicv3CPUInterface::deactivateIRQ(uint32_t int_id, Gicv3::GroupId group)
     if (int_id < Gicv3::SGI_MAX + Gicv3::PPI_MAX) {
         // SGI or PPI, redistributor
         redistributor->deactivateIRQ(int_id);
-        redistributor->updateAndInformCPUInterface();
     } else if (int_id < Gicv3::INTID_SECURE) {
         // SPI, distributor
         distributor->deactivateIRQ(int_id);
-        distributor->updateAndInformCPUInterfaces();
-    } else {
-        // LPI, redistributor, shouldn't deactivate
-        redistributor->updateAndInformCPUInterface();
     }
+
+    updateDistributor();
 }
 
 void
@@ -1897,8 +1934,10 @@ Gicv3CPUInterface::groupPriorityMask(Gicv3::GroupId group)
 
     if (group == Gicv3::G0S) {
         bpr = readMiscReg(MISCREG_ICC_BPR0_EL1) & 0x7;
+    } else if (group == Gicv3::G1S) {
+        bpr = bpr1(Gicv3::G1S) & 0x7;
     } else {
-        bpr = readMiscReg(MISCREG_ICC_BPR1_EL1) & 0x7;
+        bpr = bpr1(Gicv3::G1NS) & 0x7;
     }
 
     if (group == Gicv3::G1NS) {
@@ -1943,8 +1982,11 @@ Gicv3CPUInterface::isEOISplitMode() const
             isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL3);
         return icc_ctlr_el3.EOImode_EL3;
     } else {
-        ICC_CTLR_EL1 icc_ctlr_el1 =
-            isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1);
+        ICC_CTLR_EL1 icc_ctlr_el1 = 0;
+        if (inSecureState())
+            icc_ctlr_el1 = isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_S);
+        else
+            icc_ctlr_el1 = isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_NS);
         return icc_ctlr_el1.EOImode;
     }
 }
@@ -1979,6 +2021,12 @@ Gicv3CPUInterface::highestActiveGroup() const
 }
 
 void
+Gicv3CPUInterface::updateDistributor()
+{
+    distributor->update();
+}
+
+void
 Gicv3CPUInterface::update()
 {
     bool signal_IRQ = false;
@@ -1993,22 +2041,22 @@ Gicv3CPUInterface::update()
     }
 
     if (hppiCanPreempt()) {
-        ArmISA::InterruptTypes int_type = intSignalType(hppi.group);
+        InterruptTypes int_type = intSignalType(hppi.group);
         DPRINTF(GIC, "Gicv3CPUInterface::update(): "
                 "posting int as %d!\n", int_type);
-        int_type == ArmISA::INT_IRQ ? signal_IRQ = true : signal_FIQ = true;
+        int_type == INT_IRQ ? signal_IRQ = true : signal_FIQ = true;
     }
 
     if (signal_IRQ) {
-        gic->postInt(cpuId, ArmISA::INT_IRQ);
+        gic->postInt(cpuId, INT_IRQ);
     } else {
-        gic->deassertInt(cpuId, ArmISA::INT_IRQ);
+        gic->deassertInt(cpuId, INT_IRQ);
     }
 
     if (signal_FIQ) {
-        gic->postInt(cpuId, ArmISA::INT_FIQ);
+        gic->postInt(cpuId, INT_FIQ);
     } else {
-        gic->deassertInt(cpuId, ArmISA::INT_FIQ);
+        gic->deassertInt(cpuId, INT_FIQ);
     }
 }
 
@@ -2034,26 +2082,29 @@ Gicv3CPUInterface::virtualUpdate()
 
     ICH_HCR_EL2 ich_hcr_el2 = isa->readMiscRegNoEffect(MISCREG_ICH_HCR_EL2);
 
-    if (ich_hcr_el2.En) {
-        if (maintenanceInterruptStatus()) {
-            maintenanceInterrupt->raise();
-        }
+    const bool maint_pending = redistributor->irqPending[
+        maintenanceInterrupt->num()];
+
+    if (ich_hcr_el2.En && !maint_pending && maintenanceInterruptStatus()) {
+        maintenanceInterrupt->raise();
+    } else if (maint_pending) {
+        maintenanceInterrupt->clear();
     }
 
     if (signal_IRQ) {
         DPRINTF(GIC, "Gicv3CPUInterface::virtualUpdate(): "
-                "posting int as %d!\n", ArmISA::INT_VIRT_IRQ);
-        gic->postInt(cpuId, ArmISA::INT_VIRT_IRQ);
+                "posting int as %d!\n", INT_VIRT_IRQ);
+        gic->postInt(cpuId, INT_VIRT_IRQ);
     } else {
-        gic->deassertInt(cpuId, ArmISA::INT_VIRT_IRQ);
+        gic->deassertInt(cpuId, INT_VIRT_IRQ);
     }
 
     if (signal_FIQ) {
         DPRINTF(GIC, "Gicv3CPUInterface::virtualUpdate(): "
-                "posting int as %d!\n", ArmISA::INT_VIRT_FIQ);
-        gic->postInt(cpuId, ArmISA::INT_VIRT_FIQ);
+                "posting int as %d!\n", INT_VIRT_FIQ);
+        gic->postInt(cpuId, INT_VIRT_FIQ);
     } else {
-        gic->deassertInt(cpuId, ArmISA::INT_VIRT_FIQ);
+        gic->deassertInt(cpuId, INT_VIRT_FIQ);
     }
 }
 
@@ -2171,7 +2222,7 @@ Gicv3CPUInterface::virtualIncrementEOICount()
 }
 
 // spec section 4.6.2
-ArmISA::InterruptTypes
+InterruptTypes
 Gicv3CPUInterface::intSignalType(Gicv3::GroupId group) const
 {
     bool is_fiq = false;
@@ -2195,9 +2246,9 @@ Gicv3CPUInterface::intSignalType(Gicv3::GroupId group) const
     }
 
     if (is_fiq) {
-        return ArmISA::INT_FIQ;
+        return INT_FIQ;
     } else {
-        return ArmISA::INT_IRQ;
+        return INT_IRQ;
     }
 }
 
@@ -2256,19 +2307,19 @@ Gicv3CPUInterface::groupEnabled(Gicv3::GroupId group) const
       case Gicv3::G0S: {
         ICC_IGRPEN0_EL1 icc_igrpen0_el1 =
             isa->readMiscRegNoEffect(MISCREG_ICC_IGRPEN0_EL1);
-        return icc_igrpen0_el1.Enable;
+        return icc_igrpen0_el1.Enable && distributor->EnableGrp0;
       }
 
       case Gicv3::G1S: {
         ICC_IGRPEN1_EL1 icc_igrpen1_el1_s =
             isa->readMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL1_S);
-        return icc_igrpen1_el1_s.Enable;
+        return icc_igrpen1_el1_s.Enable && distributor->EnableGrp1S;
       }
 
       case Gicv3::G1NS: {
         ICC_IGRPEN1_EL1 icc_igrpen1_el1_ns =
             isa->readMiscRegNoEffect(MISCREG_ICC_IGRPEN1_EL1_NS);
-        return icc_igrpen1_el1_ns.Enable;
+        return icc_igrpen1_el1_ns.Enable && distributor->EnableGrp1NS;
       }
 
       default:
@@ -2285,7 +2336,7 @@ Gicv3CPUInterface::inSecureState() const
 
     CPSR cpsr = isa->readMiscRegNoEffect(MISCREG_CPSR);
     SCR scr = isa->readMiscRegNoEffect(MISCREG_SCR);
-    return ArmISA::inSecureState(scr, cpsr);
+    return ::inSecureState(scr, cpsr);
 }
 
 int
@@ -2484,6 +2535,77 @@ Gicv3CPUInterface::maintenanceInterruptStatus() const
     }
 
     return ich_misr_el2;
+}
+
+RegVal
+Gicv3CPUInterface::bpr1(Gicv3::GroupId group)
+{
+    bool hcr_imo = getHCREL2IMO();
+    if ((currEL() == EL1) && !inSecureState() && hcr_imo) {
+        return readMiscReg(MISCREG_ICV_BPR1_EL1);
+    }
+
+    RegVal bpr = 0;
+
+    if (group == Gicv3::G1S) {
+        ICC_CTLR_EL1 icc_ctlr_el1_s =
+            isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_S);
+
+        if (!isEL3OrMon() && icc_ctlr_el1_s.CBPR) {
+            bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR0_EL1);
+        } else {
+            bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR1_EL1_S);
+            bpr = bpr > GIC_MIN_BPR ? bpr : GIC_MIN_BPR;
+        }
+    } else if (group == Gicv3::G1NS) {
+        ICC_CTLR_EL1 icc_ctlr_el1_ns =
+            isa->readMiscRegNoEffect(MISCREG_ICC_CTLR_EL1_NS);
+
+        // Check if EL3 is implemented and this is a non secure accesses at
+        // EL1 and EL2
+        if (haveEL(EL3) && !isEL3OrMon() && icc_ctlr_el1_ns.CBPR) {
+            // Reads return BPR0 + 1 saturated to 7, WI
+            bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR0_EL1) + 1;
+            bpr = bpr < 7 ? bpr : 7;
+        } else {
+            bpr = isa->readMiscRegNoEffect(MISCREG_ICC_BPR1_EL1_NS);
+            bpr = bpr > GIC_MIN_BPR_NS ? bpr : GIC_MIN_BPR_NS;
+        }
+    } else {
+        panic("Should be used with G1S and G1NS only\n");
+    }
+
+    return bpr;
+}
+
+bool
+Gicv3CPUInterface::havePendingInterrupts() const
+{
+    return gic->haveAsserted(cpuId) || hppi.prio != 0xff;
+}
+
+void
+Gicv3CPUInterface::clearPendingInterrupts()
+{
+    gic->deassertAll(cpuId);
+    resetHppi(hppi.intid);
+}
+
+void
+Gicv3CPUInterface::assertWakeRequest()
+{
+    auto *tc = gic->getSystem()->threads[cpuId];
+    if (ArmSystem::callSetWakeRequest(tc)) {
+        Reset().invoke(tc);
+        tc->activate();
+    }
+}
+
+void
+Gicv3CPUInterface::deassertWakeRequest()
+{
+    auto *tc = gic->getSystem()->threads[cpuId];
+    ArmSystem::callClearWakeRequest(tc);
 }
 
 void

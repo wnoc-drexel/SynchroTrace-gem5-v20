@@ -26,8 +26,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Alec Roelke
 
 // Declaration templates
 def template AtomicMemOpDeclare {{
@@ -227,7 +225,7 @@ def template LoadReservedExecute {{
         %(ea_code)s;
 
         if (fault == NoFault) {
-            fault = readMemAtomic(xc, traceData, EA, Mem, memAccessFlags);
+            fault = readMemAtomicLE(xc, traceData, EA, Mem, memAccessFlags);
             %(memacc_code)s;
         }
 
@@ -256,7 +254,7 @@ def template StoreCondExecute {{
         }
 
         if (fault == NoFault) {
-            fault = writeMemAtomic(xc, traceData, Mem, EA, memAccessFlags,
+            fault = writeMemAtomicLE(xc, traceData, Mem, EA, memAccessFlags,
                 &result);
             // RISC-V has the opposite convention gem5 has for success flags,
             // so we invert the result here.
@@ -290,7 +288,7 @@ def template AtomicMemOpRMWExecute {{
         assert(amo_op);
 
         if (fault == NoFault) {
-            fault = amoMemAtomic(xc, traceData, Mem, EA, memAccessFlags,
+            fault = amoMemAtomicLE(xc, traceData, Mem, EA, memAccessFlags,
                                  amo_op);
             %(memacc_code)s;
         }
@@ -346,7 +344,7 @@ def template StoreCondInitiateAcc {{
         }
 
         if (fault == NoFault) {
-            fault = writeMemTiming(xc, traceData, Mem, EA,
+            fault = writeMemTimingLE(xc, traceData, Mem, EA,
                 memAccessFlags, nullptr);
         }
 
@@ -394,7 +392,7 @@ def template LoadReservedCompleteAcc {{
         %(op_decl)s;
         %(op_rd)s;
 
-        getMem(pkt, Mem, traceData);
+        getMemLE(pkt, Mem, traceData);
 
         if (fault == NoFault) {
             %(memacc_code)s;
@@ -441,7 +439,7 @@ def template AtomicMemOpRMWCompleteAcc {{
         %(op_decl)s;
         %(op_rd)s;
 
-        getMem(pkt, Mem, traceData);
+        getMemLE(pkt, Mem, traceData);
 
         if (fault == NoFault) {
             %(memacc_code)s;

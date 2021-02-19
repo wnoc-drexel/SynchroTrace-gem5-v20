@@ -26,9 +26,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
  */
 
 #include "sim/core.hh"
@@ -140,9 +137,9 @@ exitCallbacks()
  * Register an exit callback.
  */
 void
-registerExitCallback(Callback *callback)
+registerExitCallback(const std::function<void()> &callback)
 {
-    exitCallbacks().add(callback);
+    exitCallbacks().push_back(callback);
 }
 
 /**

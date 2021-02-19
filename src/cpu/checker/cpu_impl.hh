@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Geoffrey Blake
  */
 
 #ifndef __CPU_CHECKER_CPU_IMPL_HH__
@@ -48,8 +45,6 @@
 #include <list>
 #include <string>
 
-#include "arch/isa_traits.hh"
-#include "arch/vtophys.hh"
 #include "base/refcnt.hh"
 #include "config/the_isa.hh"
 #include "cpu/base_dyn_inst.hh"
@@ -207,9 +202,6 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
 
         // maintain $r0 semantics
         thread->setIntReg(ZeroReg, 0);
-#if THE_ISA == ALPHA_ISA
-        thread->setFloatReg(ZeroReg, 0);
-#endif
 
         // Check if any recent PC changes match up with anything we
         // expect to happen.  This is mostly to check if traps or
@@ -245,12 +237,11 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
             if (!curMacroStaticInst) {
                 // set up memory request for instruction fetch
                 auto mem_req = std::make_shared<Request>(
-                    unverifiedInst->threadNumber, fetch_PC,
-                    sizeof(MachInst), 0, masterId, fetch_PC,
+                    fetch_PC, sizeof(MachInst), 0, requestorId, fetch_PC,
                     thread->contextId());
 
-                mem_req->setVirt(0, fetch_PC, sizeof(MachInst),
-                                 Request::INST_FETCH, masterId,
+                mem_req->setVirt(fetch_PC, sizeof(MachInst),
+                                 Request::INST_FETCH, requestorId,
                                  thread->instAddr());
 
                 fault = itb->translateFunctional(
@@ -285,7 +276,6 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
 
                     pkt->dataStatic(&machInst);
                     icachePort->sendFunctional(pkt);
-                    machInst = gtoh(machInst);
 
                     delete pkt;
                 }
@@ -296,8 +286,8 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
 
                 if (isRomMicroPC(pcState.microPC())) {
                     fetchDone = true;
-                    curStaticInst =
-                        microcodeRom.fetchMicroop(pcState.microPC(), NULL);
+                    curStaticInst = thread->decoder.fetchRomMicroop(
+                            pcState.microPC(), nullptr);
                 } else if (!curMacroStaticInst) {
                     //We're not in the middle of a macro instruction
                     StaticInstPtr instPtr = nullptr;
@@ -412,7 +402,7 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
             int count = 0;
             do {
                 oldpc = thread->instAddr();
-                system->pcEventQueue.service(tc);
+                thread->pcEventQueue.service(oldpc, tc);
                 count++;
             } while (oldpc != thread->instAddr());
             if (count > 1) {

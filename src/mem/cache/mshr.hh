@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Nikos Nikoleris
  */
 
 /**
@@ -203,7 +200,7 @@ class MSHR : public QueueEntry, public Printable
         }
 
         void resetFlags() {
-            onlyWrites = true;
+            canMergeWrites = true;
             std::fill(writesBitmap.begin(), writesBitmap.end(), false);
 
             needsWritable = false;
@@ -227,28 +224,7 @@ class MSHR : public QueueEntry, public Printable
          *
          * @param pkt Packet considered for adding
          */
-        void updateWriteFlags(PacketPtr pkt) {
-             const Request::FlagsType noMergeFlags =
-                 Request::UNCACHEABLE |
-                 Request::STRICT_ORDER | Request::MMAPPED_IPR |
-                 Request::PRIVILEGED | Request::LLSC |
-                 Request::MEM_SWAP | Request::MEM_SWAP_COND |
-                 Request::SECURE;
-
-             // if we have already seen writes for the full block stop
-             // here, this might be a full line write followed by
-             // other compatible requests (e.g., reads)
-             if (!isWholeLineWrite()) {
-                 bool can_merge_write = pkt->isWrite() &&
-                     ((pkt->req->getFlags() & noMergeFlags) == 0);
-                 onlyWrites &= can_merge_write;
-                 if (onlyWrites) {
-                     auto offset = pkt->getOffset(blkSize);
-                     auto begin = writesBitmap.begin() + offset;
-                     std::fill(begin, begin + pkt->getSize(), true);
-                 }
-             }
-         }
+        void updateWriteFlags(PacketPtr pkt);
 
         /**
          * Tests if the flags of this TargetList have their default
@@ -258,7 +234,7 @@ class MSHR : public QueueEntry, public Printable
          */
         bool isReset() const {
             return !needsWritable && !hasUpgrade && !allocOnFill &&
-                !hasFromCache && onlyWrites;
+                !hasFromCache && canMergeWrites;
         }
 
         /**
@@ -289,17 +265,16 @@ class MSHR : public QueueEntry, public Printable
                    const std::string &prefix) const;
 
         /**
-         * Check if this list contains only compatible writes, and if they
-         * span the entire cache line. This is used as part of the
-         * miss-packet creation. Note that new requests may arrive after a
-         * miss-packet has been created, and for the fill we therefore use
-         * the wasWholeLineWrite field.
+         * Check if this list contains writes that cover an entire
+         * cache line. This is used as part of the miss-packet
+         * creation. Note that new requests may arrive after a
+         * miss-packet has been created, and for the corresponding
+         * fill we use the wasWholeLineWrite field.
          */
         bool isWholeLineWrite() const
         {
-            return onlyWrites &&
-                std::all_of(writesBitmap.begin(),
-                            writesBitmap.end(), [](bool i) { return i; });
+            return std::all_of(writesBitmap.begin(), writesBitmap.end(),
+                               [](bool i) { return i; });
         }
 
       private:
@@ -309,8 +284,8 @@ class MSHR : public QueueEntry, public Printable
         /** Size of the cache block. */
         Addr blkSize;
 
-        /** Are we only dealing with writes. */
-        bool onlyWrites;
+        /** Indicates whether we can merge incoming write requests */
+        bool canMergeWrites;
 
         // NOTE: std::vector<bool> might not meet satisfy the
         // ForwardIterator requirement and therefore cannot be used

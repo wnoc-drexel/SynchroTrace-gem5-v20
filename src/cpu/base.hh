@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2013, 2017 ARM Limited
+ * Copyright (c) 2011-2013, 2017, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,10 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
- *          Rick Strong
  */
 
 #ifndef __CPU_BASE_HH__
@@ -54,10 +50,9 @@
 #if THE_ISA == NULL_ISA
 #include "arch/null/cpu_dummy.hh"
 #else
-#include "arch/interrupts.hh"
-#include "arch/isa_traits.hh"
-#include "arch/microcode_rom.hh"
+#include "arch/generic/interrupts.hh"
 #include "base/statistics.hh"
+#include "mem/port_proxy.hh"
 #include "sim/clocked_object.hh"
 #include "sim/eventq.hh"
 #include "sim/full_system.hh"
@@ -128,10 +123,10 @@ class BaseCPU : public ClockedObject
     const uint32_t _socketId;
 
     /** instruction side request id that must be placed in all requests */
-    MasterID _instMasterId;
+    RequestorID _instRequestorId;
 
     /** data side request id that must be placed in all requests */
-    MasterID _dataMasterId;
+    RequestorID _dataRequestorId;
 
     /** An intrenal representation of a task identifier within gem5. This is
      * used so the CPU can add which taskId (which is an internal representation
@@ -158,7 +153,18 @@ class BaseCPU : public ClockedObject
      *
      * @return a reference to the data port
      */
-    virtual MasterPort &getDataPort() = 0;
+    virtual Port &getDataPort() = 0;
+
+    /**
+     * Returns a sendFunctional delegate for use with port proxies.
+     */
+    virtual PortProxy::SendFunctionalFunc
+    getSendFunctional()
+    {
+        auto port = dynamic_cast<RequestPort *>(&getDataPort());
+        assert(port);
+        return [port](PacketPtr pkt)->void { port->sendFunctional(pkt); };
+    }
 
     /**
      * Purely virtual method that returns a reference to the instruction
@@ -166,7 +172,7 @@ class BaseCPU : public ClockedObject
      *
      * @return a reference to the instruction port
      */
-    virtual MasterPort &getInstPort() = 0;
+    virtual Port &getInstPort() = 0;
 
     /** Reads this CPU's ID. */
     int cpuId() const { return _cpuId; }
@@ -175,9 +181,9 @@ class BaseCPU : public ClockedObject
     uint32_t socketId() const { return _socketId; }
 
     /** Reads this CPU's unique data requestor ID */
-    MasterID dataMasterId() const { return _dataMasterId; }
+    RequestorID dataRequestorId() const { return _dataRequestorId; }
     /** Reads this CPU's unique instruction requestor ID */
-    MasterID instMasterId() const { return _instMasterId; }
+    RequestorID instRequestorId() const { return _instRequestorId; }
 
     /**
      * Get a port on this CPU. All CPUs have a data and
@@ -205,13 +211,11 @@ class BaseCPU : public ClockedObject
     // @todo remove me after debugging with legion done
     Tick instCount() { return instCnt; }
 
-    TheISA::MicrocodeRom microcodeRom;
-
   protected:
-    std::vector<TheISA::Interrupts*> interrupts;
+    std::vector<BaseInterrupts*> interrupts;
 
   public:
-    TheISA::Interrupts *
+    BaseInterrupts *
     getInterruptController(ThreadID tid)
     {
         if (interrupts.empty())
@@ -224,12 +228,7 @@ class BaseCPU : public ClockedObject
     virtual void wakeup(ThreadID tid) = 0;
 
     void
-    postInterrupt(ThreadID tid, int int_num, int index)
-    {
-        interrupts[tid]->post(int_num, index);
-        if (FullSystem)
-            wakeup(tid);
-    }
+    postInterrupt(ThreadID tid, int int_num, int index);
 
     void
     clearInterrupt(ThreadID tid, int int_num, int index)
@@ -244,13 +243,10 @@ class BaseCPU : public ClockedObject
     }
 
     bool
-    checkInterrupts(ThreadContext *tc) const
+    checkInterrupts(ThreadID tid) const
     {
-        return FullSystem && interrupts[tc->threadId()]->checkInterrupts(tc);
+        return FullSystem && interrupts[tid]->checkInterrupts();
     }
-
-    void processProfileEvent();
-    EventFunctionWrapper * profileEvent;
 
   protected:
     std::vector<ThreadContext *> threadContexts;
@@ -372,20 +368,6 @@ class BaseCPU : public ClockedObject
      */
     ThreadID numThreads;
 
-    /**
-     * Vector of per-thread instruction-based event queues.  Used for
-     * scheduling events based on number of instructions committed by
-     * a particular thread.
-     */
-    EventQueue **comInstEventQueue;
-
-    /**
-     * Vector of per-thread load-based event queues.  Used for
-     * scheduling events based on number of loads committed by
-     *a particular thread.
-     */
-    EventQueue **comLoadEventQueue;
-
     System *system;
 
     /**
@@ -451,21 +433,6 @@ class BaseCPU : public ClockedObject
      * @param cause Cause to signal in the exit event.
      */
     void scheduleInstStop(ThreadID tid, Counter insts, const char *cause);
-
-    /**
-     * Schedule an event that exits the simulation loops after a
-     * predefined number of load operations.
-     *
-     * This method is usually called from the configuration script to
-     * get an exit event some time in the future. It is typically used
-     * when the script wants to simulate for a specific number of
-     * loads rather than ticks.
-     *
-     * @param tid Thread monitor.
-     * @param loads Number of load instructions into the future.
-     * @param cause Cause to signal in the exit event.
-     */
-    void scheduleLoadStop(ThreadID tid, Counter loads, const char *cause);
 
     /**
      * Get the number of instructions executed by the specified thread

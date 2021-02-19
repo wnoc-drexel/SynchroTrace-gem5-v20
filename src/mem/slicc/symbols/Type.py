@@ -201,15 +201,16 @@ class Type(Symbol):
 #include <iostream>
 
 #include "mem/ruby/slicc_interface/RubySlicc_Util.hh"
+
 ''')
 
         for dm in self.data_members.values():
             if not dm.type.isPrimitive:
-                code('#include "mem/protocol/$0.hh"', dm.type.c_ident)
+                code('#include "mem/ruby/protocol/$0.hh"', dm.type.c_ident)
 
         parent = ""
         if "interface" in self:
-            code('#include "mem/protocol/$0.hh"', self["interface"])
+            code('#include "mem/ruby/protocol/$0.hh"', self["interface"])
             parent = " :  public %s" % self["interface"]
 
         code('''
@@ -257,11 +258,18 @@ $klass ${{self.c_ident}}$parent
 
             code.dedent()
             code('}')
+        else:
+            code('${{self.c_ident}}(const ${{self.c_ident}}&) = default;')
+
+        # ******** Assignment operator ********
+
+        code('${{self.c_ident}}')
+        code('&operator=(const ${{self.c_ident}}&) = default;')
 
         # ******** Full init constructor ********
         if not self.isGlobal:
             params = [ 'const %s& local_%s' % (dm.type.c_ident, dm.ident) \
-                       for dm in self.data_members.itervalues() ]
+                       for dm in self.data_members.values() ]
             params = ', '.join(params)
 
             if self.isMessage:
@@ -404,7 +412,7 @@ operator<<(std::ostream& out, const ${{self.c_ident}}& obj)
 #include <iostream>
 #include <memory>
 
-#include "mem/protocol/${{self.c_ident}}.hh"
+#include "mem/ruby/protocol/${{self.c_ident}}.hh"
 #include "mem/ruby/system/RubySystem.hh"
 
 using namespace std;
@@ -456,7 +464,7 @@ out << "${{dm.ident}} = " << printAddress(m_${{dm.ident}}) << " ";''')
 
 ''')
         if self.isStateDecl:
-            code('#include "mem/protocol/AccessPermission.hh"')
+            code('#include "mem/ruby/protocol/AccessPermission.hh"')
 
         if self.isMachineType:
             code('#include <functional>')
@@ -477,7 +485,7 @@ enum ${{self.c_ident}} {
 
         code.indent()
         # For each field
-        for i,(ident,enum) in enumerate(self.enums.iteritems()):
+        for i,(ident,enum) in enumerate(self.enums.items()):
             desc = enum.get("desc", "No description avaliable")
             if i == 0:
                 init = ' = %s_FIRST' % self.c_ident
@@ -522,7 +530,7 @@ int ${{self.c_ident}}_base_number(const ${{self.c_ident}}& obj);
 int ${{self.c_ident}}_base_count(const ${{self.c_ident}}& obj);
 ''')
 
-            for enum in self.enums.itervalues():
+            for enum in self.enums.values():
                 code('''
 
 MachineID get${{enum.ident}}MachineID(NodeID RubyNode);
@@ -558,7 +566,7 @@ std::ostream& operator<<(std::ostream& out, const ${{self.c_ident}}& obj);
 #include <string>
 
 #include "base/logging.hh"
-#include "mem/protocol/${{self.c_ident}}.hh"
+#include "mem/ruby/protocol/${{self.c_ident}}.hh"
 
 using namespace std;
 
@@ -586,9 +594,10 @@ AccessPermission ${{self.c_ident}}_to_permission(const ${{self.c_ident}}& obj)
 ''')
 
         if self.isMachineType:
-            for enum in self.enums.itervalues():
+            for enum in self.enums.values():
                 if enum.primary:
-                    code('#include "mem/protocol/${{enum.ident}}_Controller.hh"')
+                    code('#include "mem/ruby/protocol/${{enum.ident}}'
+                            '_Controller.hh"')
             code('#include "mem/ruby/common/MachineID.hh"')
 
         code('''
@@ -610,7 +619,7 @@ ${{self.c_ident}}_to_string(const ${{self.c_ident}}& obj)
 
         # For each field
         code.indent()
-        for enum in self.enums.itervalues():
+        for enum in self.enums.values():
             code('  case ${{self.c_ident}}_${{enum.ident}}:')
             code('    return "${{enum.ident}}";')
         code.dedent()
@@ -631,7 +640,7 @@ string_to_${{self.c_ident}}(const string& str)
         # For each field
         start = ""
         code.indent()
-        for enum in self.enums.itervalues():
+        for enum in self.enums.values():
             code('${start}if (str == "${{enum.ident}}") {')
             code('    return ${{self.c_ident}}_${{enum.ident}};')
             start = "} else "
@@ -670,7 +679,7 @@ ${{self.c_ident}}_base_level(const ${{self.c_ident}}& obj)
 
             # For each field
             code.indent()
-            for i,enum in enumerate(self.enums.itervalues()):
+            for i,enum in enumerate(self.enums.values()):
                 code('  case ${{self.c_ident}}_${{enum.ident}}:')
                 code('    return $i;')
             code.dedent()
@@ -697,7 +706,7 @@ ${{self.c_ident}}_from_base_level(int type)
 
             # For each field
             code.indent()
-            for i,enum in enumerate(self.enums.itervalues()):
+            for i,enum in enumerate(self.enums.values()):
                 code('  case $i:')
                 code('    return ${{self.c_ident}}_${{enum.ident}};')
             code.dedent()
@@ -753,7 +762,7 @@ ${{self.c_ident}}_base_count(const ${{self.c_ident}}& obj)
 ''')
 
             # For each field
-            for enum in self.enums.itervalues():
+            for enum in self.enums.values():
                 code('case ${{self.c_ident}}_${{enum.ident}}:')
                 if enum.primary:
                     code('return ${{enum.ident}}_Controller::getNumControllers();')
@@ -769,7 +778,7 @@ ${{self.c_ident}}_base_count(const ${{self.c_ident}}& obj)
 }
 ''')
 
-            for enum in self.enums.itervalues():
+            for enum in self.enums.values():
                 code('''
 
 MachineID

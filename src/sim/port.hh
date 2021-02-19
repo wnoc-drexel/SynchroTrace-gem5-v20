@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Andreas Hansson
- *          William Wang
  */
 
 /**
@@ -67,11 +63,22 @@ class Port
 
   protected:
 
+    class UnboundPortException {};
+
+    [[noreturn]] void reportUnbound() const;
+
     /**
      * A numeric identifier to distinguish ports in a vector, and set
      * to InvalidPortID in case this port is not part of a vector.
      */
     const PortID id;
+
+    /**
+     * A pointer to this port's peer.
+     */
+    Port *_peer;
+
+
     /**
      * Whether this port is currently connected to a peer port.
      */
@@ -85,12 +92,15 @@ class Port
      */
     Port(const std::string& _name, PortID _id);
 
+  public:
+
     /**
      * Virtual destructor due to inheritance.
      */
     virtual ~Port();
 
-  public:
+    /** Return a reference to this port's peer. */
+    Port &getPeer() { return *_peer; }
 
     /** Return port name (for DPRINTF). */
     const std::string name() const { return portName; }
@@ -99,13 +109,49 @@ class Port
     PortID getId() const { return id; }
 
     /** Attach to a peer port. */
-    virtual void bind(Port &peer) = 0;
+    virtual void
+    bind(Port &peer)
+    {
+        _peer = &peer;
+        _connected = true;
+    }
 
     /** Dettach from a peer port. */
-    virtual void unbind() = 0;
+    virtual void
+    unbind()
+    {
+        _peer = nullptr;
+        _connected = false;
+    }
 
     /** Is this port currently connected to a peer? */
     bool isConnected() const { return _connected; }
+
+    /** A utility function to make it easier to swap out ports. */
+    void
+    takeOverFrom(Port *old)
+    {
+        assert(old);
+        assert(old->isConnected());
+        assert(!isConnected());
+        Port &peer = old->getPeer();
+        assert(peer.isConnected());
+
+        // Disconnect the original binding.
+        old->unbind();
+        peer.unbind();
+
+        // Connect the new binding.
+        peer.bind(*this);
+        bind(peer);
+    }
 };
+
+static inline std::ostream &
+operator << (std::ostream &os, const Port &port)
+{
+    os << port.name();
+    return os;
+}
 
 #endif //__SIM_PORT_HH__

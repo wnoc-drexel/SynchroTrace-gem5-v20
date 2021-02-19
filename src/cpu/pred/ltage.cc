@@ -29,9 +29,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vignyan Reddy, Dibakar Gope and Arthur Perais,
- * from André Seznec's code.
  */
 
 /* @file
@@ -97,8 +94,6 @@ LTAGE::update(ThreadID tid, Addr branch_pc, bool taken, void* bp_history,
     assert(bp_history);
 
     LTageBranchInfo* bi = static_cast<LTageBranchInfo*>(bp_history);
-
-    assert(corrTarget != MaxAddr);
 
     if (squashed) {
         if (tage->isSpeculativeUpdateEnabled()) {

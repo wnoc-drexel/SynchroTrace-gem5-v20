@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015 ARM Limited
+ * Copyright (c) 2020 Barkhausen Institut
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,11 +38,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Chris Emmons
- *          Andreas Sandberg
- *          Sascha Bischoff
  */
 
 #include "base/output.hh"
@@ -88,9 +84,11 @@ OutputFile<StreamType>::OutputFile(const OutputDirectory &dir,
     _mode(mode), _recreateable(recreateable),
     _fstream(static_cast<stream_type_t *>(_stream))
 {
-    _fstream->open(dir.resolve(_name).c_str(), _mode);
+    std::string resolved_path = dir.resolve(_name);
 
-    assert(_fstream->is_open());
+    _fstream->open(resolved_path.c_str(), _mode);
+
+    panic_if(!_fstream->is_open(), "Failed to open \"%s\"\n", resolved_path);
 }
 
 template<class StreamType>
@@ -147,6 +145,11 @@ OutputDirectory::checkForStdio(const string &name)
 void
 OutputDirectory::close(OutputStream *file)
 {
+    if (file == &stdout || file == &stderr) {
+        file->stream()->flush();
+        return;
+    }
+
     auto i = files.find(file->name());
     if (i == files.end())
         fatal("Attempted to close an unregistred file stream");

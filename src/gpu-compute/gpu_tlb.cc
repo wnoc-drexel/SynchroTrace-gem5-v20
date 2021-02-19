@@ -40,9 +40,11 @@
 
 #include "arch/x86/faults.hh"
 #include "arch/x86/insts/microldstop.hh"
+#include "arch/x86/isa_traits.hh"
 #include "arch/x86/pagetable.hh"
 #include "arch/x86/pagetable_walker.hh"
 #include "arch/x86/regs/misc.hh"
+#include "arch/x86/regs/msr.hh"
 #include "arch/x86/x86_traits.hh"
 #include "base/bitfield.hh"
 #include "base/logging.hh"
@@ -56,6 +58,7 @@
 #include "mem/page_table.hh"
 #include "mem/request.hh"
 #include "sim/process.hh"
+#include "sim/pseudo_inst.hh"
 
 namespace X86ISA
 {
@@ -72,7 +75,6 @@ namespace X86ISA
         allocationPolicy = p->allocationPolicy;
         hasMemSidePort = false;
         accessDistance = p->accessDistance;
-        clock = p->clk_domain->clockPeriod();
 
         tlb.assign(size, TlbEntry());
 
@@ -111,14 +113,14 @@ namespace X86ISA
         missLatency1 = p->missLatency1;
         missLatency2 = p->missLatency2;
 
-        // create the slave ports based on the number of connected ports
-        for (size_t i = 0; i < p->port_slave_connection_count; ++i) {
+        // create the response ports based on the number of connected ports
+        for (size_t i = 0; i < p->port_cpu_side_ports_connection_count; ++i) {
             cpuSidePort.push_back(new CpuSidePort(csprintf("%s-port%d",
                                   name(), i), this, i));
         }
 
-        // create the master ports based on the number of connected ports
-        for (size_t i = 0; i < p->port_master_connection_count; ++i) {
+        // create the request ports based on the number of connected ports
+        for (size_t i = 0; i < p->port_mem_side_ports_connection_count; ++i) {
             memSidePort.push_back(new MemSidePort(csprintf("%s-port%d",
                                   name(), i), this, i));
         }
@@ -134,13 +136,13 @@ namespace X86ISA
     Port &
     GpuTLB::getPort(const std::string &if_name, PortID idx)
     {
-        if (if_name == "slave") {
+        if (if_name == "cpu_side_ports") {
             if (idx >= static_cast<PortID>(cpuSidePort.size())) {
                 panic("TLBCoalescer::getPort: unknown index %d\n", idx);
             }
 
             return *cpuSidePort[idx];
-        } else if (if_name == "master") {
+        } else if (if_name == "mem_side_ports") {
             if (idx >= static_cast<PortID>(memSidePort.size())) {
                 panic("TLBCoalescer::getPort: unknown index %d\n", idx);
             }
@@ -273,8 +275,30 @@ namespace X86ISA
         }
     }
 
+
+
+    namespace
+    {
+
+    Cycles
+    localMiscRegAccess(bool read, MiscRegIndex regNum,
+                       ThreadContext *tc, PacketPtr pkt)
+    {
+        if (read) {
+            RegVal data = htole(tc->readMiscReg(regNum));
+            // Make sure we don't trot off the end of data.
+            pkt->setData((uint8_t *)&data);
+        } else {
+            RegVal data = htole(tc->readMiscRegNoEffect(regNum));
+            tc->setMiscReg(regNum, letoh(data));
+        }
+        return Cycles(1);
+    }
+
+    } // anonymous namespace
+
     Fault
-    GpuTLB::translateInt(const RequestPtr &req, ThreadContext *tc)
+    GpuTLB::translateInt(bool read, const RequestPtr &req, ThreadContext *tc)
     {
         DPRINTF(GPUTLB, "Addresses references internal memory.\n");
         Addr vaddr = req->getVaddr();
@@ -283,327 +307,19 @@ namespace X86ISA
         if (prefix == IntAddrPrefixCPUID) {
             panic("CPUID memory space not yet implemented!\n");
         } else if (prefix == IntAddrPrefixMSR) {
-            vaddr = vaddr >> 3;
-            req->setFlags(Request::MMAPPED_IPR);
-            Addr regNum = 0;
+            vaddr = (vaddr >> 3) & ~IntAddrPrefixMask;
 
-            switch (vaddr & ~IntAddrPrefixMask) {
-              case 0x10:
-                regNum = MISCREG_TSC;
-                break;
-              case 0x1B:
-                regNum = MISCREG_APIC_BASE;
-                break;
-              case 0xFE:
-                regNum = MISCREG_MTRRCAP;
-                break;
-              case 0x174:
-                regNum = MISCREG_SYSENTER_CS;
-                break;
-              case 0x175:
-                regNum = MISCREG_SYSENTER_ESP;
-                break;
-              case 0x176:
-                regNum = MISCREG_SYSENTER_EIP;
-                break;
-              case 0x179:
-                regNum = MISCREG_MCG_CAP;
-                break;
-              case 0x17A:
-                regNum = MISCREG_MCG_STATUS;
-                break;
-              case 0x17B:
-                regNum = MISCREG_MCG_CTL;
-                break;
-              case 0x1D9:
-                regNum = MISCREG_DEBUG_CTL_MSR;
-                break;
-              case 0x1DB:
-                regNum = MISCREG_LAST_BRANCH_FROM_IP;
-                break;
-              case 0x1DC:
-                regNum = MISCREG_LAST_BRANCH_TO_IP;
-                break;
-              case 0x1DD:
-                regNum = MISCREG_LAST_EXCEPTION_FROM_IP;
-                break;
-              case 0x1DE:
-                regNum = MISCREG_LAST_EXCEPTION_TO_IP;
-                break;
-              case 0x200:
-                regNum = MISCREG_MTRR_PHYS_BASE_0;
-                break;
-              case 0x201:
-                regNum = MISCREG_MTRR_PHYS_MASK_0;
-                break;
-              case 0x202:
-                regNum = MISCREG_MTRR_PHYS_BASE_1;
-                break;
-              case 0x203:
-                regNum = MISCREG_MTRR_PHYS_MASK_1;
-                break;
-              case 0x204:
-                regNum = MISCREG_MTRR_PHYS_BASE_2;
-                break;
-              case 0x205:
-                regNum = MISCREG_MTRR_PHYS_MASK_2;
-                break;
-              case 0x206:
-                regNum = MISCREG_MTRR_PHYS_BASE_3;
-                break;
-              case 0x207:
-                regNum = MISCREG_MTRR_PHYS_MASK_3;
-                break;
-              case 0x208:
-                regNum = MISCREG_MTRR_PHYS_BASE_4;
-                break;
-              case 0x209:
-                regNum = MISCREG_MTRR_PHYS_MASK_4;
-                break;
-              case 0x20A:
-                regNum = MISCREG_MTRR_PHYS_BASE_5;
-                break;
-              case 0x20B:
-                regNum = MISCREG_MTRR_PHYS_MASK_5;
-                break;
-              case 0x20C:
-                regNum = MISCREG_MTRR_PHYS_BASE_6;
-                break;
-              case 0x20D:
-                regNum = MISCREG_MTRR_PHYS_MASK_6;
-                break;
-              case 0x20E:
-                regNum = MISCREG_MTRR_PHYS_BASE_7;
-                break;
-              case 0x20F:
-                regNum = MISCREG_MTRR_PHYS_MASK_7;
-                break;
-              case 0x250:
-                regNum = MISCREG_MTRR_FIX_64K_00000;
-                break;
-              case 0x258:
-                regNum = MISCREG_MTRR_FIX_16K_80000;
-                break;
-              case 0x259:
-                regNum = MISCREG_MTRR_FIX_16K_A0000;
-                break;
-              case 0x268:
-                regNum = MISCREG_MTRR_FIX_4K_C0000;
-                break;
-              case 0x269:
-                regNum = MISCREG_MTRR_FIX_4K_C8000;
-                break;
-              case 0x26A:
-                regNum = MISCREG_MTRR_FIX_4K_D0000;
-                break;
-              case 0x26B:
-                regNum = MISCREG_MTRR_FIX_4K_D8000;
-                break;
-              case 0x26C:
-                regNum = MISCREG_MTRR_FIX_4K_E0000;
-                break;
-              case 0x26D:
-                regNum = MISCREG_MTRR_FIX_4K_E8000;
-                break;
-              case 0x26E:
-                regNum = MISCREG_MTRR_FIX_4K_F0000;
-                break;
-              case 0x26F:
-                regNum = MISCREG_MTRR_FIX_4K_F8000;
-                break;
-              case 0x277:
-                regNum = MISCREG_PAT;
-                break;
-              case 0x2FF:
-                regNum = MISCREG_DEF_TYPE;
-                break;
-              case 0x400:
-                regNum = MISCREG_MC0_CTL;
-                break;
-              case 0x404:
-                regNum = MISCREG_MC1_CTL;
-                break;
-              case 0x408:
-                regNum = MISCREG_MC2_CTL;
-                break;
-              case 0x40C:
-                regNum = MISCREG_MC3_CTL;
-                break;
-              case 0x410:
-                regNum = MISCREG_MC4_CTL;
-                break;
-              case 0x414:
-                regNum = MISCREG_MC5_CTL;
-                break;
-              case 0x418:
-                regNum = MISCREG_MC6_CTL;
-                break;
-              case 0x41C:
-                regNum = MISCREG_MC7_CTL;
-                break;
-              case 0x401:
-                regNum = MISCREG_MC0_STATUS;
-                break;
-              case 0x405:
-                regNum = MISCREG_MC1_STATUS;
-                break;
-              case 0x409:
-                regNum = MISCREG_MC2_STATUS;
-                break;
-              case 0x40D:
-                regNum = MISCREG_MC3_STATUS;
-                break;
-              case 0x411:
-                regNum = MISCREG_MC4_STATUS;
-                break;
-              case 0x415:
-                regNum = MISCREG_MC5_STATUS;
-                break;
-              case 0x419:
-                regNum = MISCREG_MC6_STATUS;
-                break;
-              case 0x41D:
-                regNum = MISCREG_MC7_STATUS;
-                break;
-              case 0x402:
-                regNum = MISCREG_MC0_ADDR;
-                break;
-              case 0x406:
-                regNum = MISCREG_MC1_ADDR;
-                break;
-              case 0x40A:
-                regNum = MISCREG_MC2_ADDR;
-                break;
-              case 0x40E:
-                regNum = MISCREG_MC3_ADDR;
-                break;
-              case 0x412:
-                regNum = MISCREG_MC4_ADDR;
-                break;
-              case 0x416:
-                regNum = MISCREG_MC5_ADDR;
-                break;
-              case 0x41A:
-                regNum = MISCREG_MC6_ADDR;
-                break;
-              case 0x41E:
-                regNum = MISCREG_MC7_ADDR;
-                break;
-              case 0x403:
-                regNum = MISCREG_MC0_MISC;
-                break;
-              case 0x407:
-                regNum = MISCREG_MC1_MISC;
-                break;
-              case 0x40B:
-                regNum = MISCREG_MC2_MISC;
-                break;
-              case 0x40F:
-                regNum = MISCREG_MC3_MISC;
-                break;
-              case 0x413:
-                regNum = MISCREG_MC4_MISC;
-                break;
-              case 0x417:
-                regNum = MISCREG_MC5_MISC;
-                break;
-              case 0x41B:
-                regNum = MISCREG_MC6_MISC;
-                break;
-              case 0x41F:
-                regNum = MISCREG_MC7_MISC;
-                break;
-              case 0xC0000080:
-                regNum = MISCREG_EFER;
-                break;
-              case 0xC0000081:
-                regNum = MISCREG_STAR;
-                break;
-              case 0xC0000082:
-                regNum = MISCREG_LSTAR;
-                break;
-              case 0xC0000083:
-                regNum = MISCREG_CSTAR;
-                break;
-              case 0xC0000084:
-                regNum = MISCREG_SF_MASK;
-                break;
-              case 0xC0000100:
-                regNum = MISCREG_FS_BASE;
-                break;
-              case 0xC0000101:
-                regNum = MISCREG_GS_BASE;
-                break;
-              case 0xC0000102:
-                regNum = MISCREG_KERNEL_GS_BASE;
-                break;
-              case 0xC0000103:
-                regNum = MISCREG_TSC_AUX;
-                break;
-              case 0xC0010000:
-                regNum = MISCREG_PERF_EVT_SEL0;
-                break;
-              case 0xC0010001:
-                regNum = MISCREG_PERF_EVT_SEL1;
-                break;
-              case 0xC0010002:
-                regNum = MISCREG_PERF_EVT_SEL2;
-                break;
-              case 0xC0010003:
-                regNum = MISCREG_PERF_EVT_SEL3;
-                break;
-              case 0xC0010004:
-                regNum = MISCREG_PERF_EVT_CTR0;
-                break;
-              case 0xC0010005:
-                regNum = MISCREG_PERF_EVT_CTR1;
-                break;
-              case 0xC0010006:
-                regNum = MISCREG_PERF_EVT_CTR2;
-                break;
-              case 0xC0010007:
-                regNum = MISCREG_PERF_EVT_CTR3;
-                break;
-              case 0xC0010010:
-                regNum = MISCREG_SYSCFG;
-                break;
-              case 0xC0010016:
-                regNum = MISCREG_IORR_BASE0;
-                break;
-              case 0xC0010017:
-                regNum = MISCREG_IORR_BASE1;
-                break;
-              case 0xC0010018:
-                regNum = MISCREG_IORR_MASK0;
-                break;
-              case 0xC0010019:
-                regNum = MISCREG_IORR_MASK1;
-                break;
-              case 0xC001001A:
-                regNum = MISCREG_TOP_MEM;
-                break;
-              case 0xC001001D:
-                regNum = MISCREG_TOP_MEM2;
-                break;
-              case 0xC0010114:
-                regNum = MISCREG_VM_CR;
-                break;
-              case 0xC0010115:
-                regNum = MISCREG_IGNNE;
-                break;
-              case 0xC0010116:
-                regNum = MISCREG_SMM_CTL;
-                break;
-              case 0xC0010117:
-                regNum = MISCREG_VM_HSAVE_PA;
-                break;
-              default:
+            MiscRegIndex regNum;
+            if (!msrAddrToIndex(regNum, vaddr))
                 return std::make_shared<GeneralProtection>(0);
-            }
-            //The index is multiplied by the size of a MiscReg so that
-            //any memory dependence calculations will not see these as
-            //overlapping.
-            req->setPaddr(regNum * sizeof(RegVal));
+
+            req->setLocalAccessor(
+                [read,regNum](ThreadContext *tc, PacketPtr pkt)
+                {
+                    return localMiscRegAccess(read, regNum, tc, pkt);
+                }
+            );
+
             return NoFault;
         } else if (prefix == IntAddrPrefixIO) {
             // TODO If CPL > IOPL or in virtual mode, check the I/O permission
@@ -613,25 +329,27 @@ namespace X86ISA
             // Make sure the address fits in the expected 16 bit IO address
             // space.
             assert(!(IOPort & ~0xFFFF));
-
             if (IOPort == 0xCF8 && req->getSize() == 4) {
-                req->setFlags(Request::MMAPPED_IPR);
-                req->setPaddr(MISCREG_PCI_CONFIG_ADDRESS * sizeof(RegVal));
+                req->setLocalAccessor(
+                    [read](ThreadContext *tc, PacketPtr pkt)
+                    {
+                        return localMiscRegAccess(
+                                read, MISCREG_PCI_CONFIG_ADDRESS, tc, pkt);
+                    }
+                );
             } else if ((IOPort & ~mask(2)) == 0xCFC) {
-                req->setFlags(Request::UNCACHEABLE);
-
+                req->setFlags(Request::UNCACHEABLE | Request::STRICT_ORDER);
                 Addr configAddress =
                     tc->readMiscRegNoEffect(MISCREG_PCI_CONFIG_ADDRESS);
-
                 if (bits(configAddress, 31, 31)) {
                     req->setPaddr(PhysAddrPrefixPciConfig |
-                                  mbits(configAddress, 30, 2) |
-                                  (IOPort & mask(2)));
+                            mbits(configAddress, 30, 2) |
+                            (IOPort & mask(2)));
                 } else {
                     req->setPaddr(PhysAddrPrefixIO | IOPort);
                 }
             } else {
-                req->setFlags(Request::UNCACHEABLE);
+                req->setFlags(Request::UNCACHEABLE | Request::STRICT_ORDER);
                 req->setPaddr(PhysAddrPrefixIO | IOPort);
             }
             return NoFault;
@@ -709,7 +427,7 @@ namespace X86ISA
         // If this is true, we're dealing with a request
         // to a non-memory address space.
         if (seg == SEGMENT_REG_MS) {
-            return translateInt(req, tc);
+            return translateInt(mode == Mode::Read, req, tc);
         }
 
         delayedResponse = false;
@@ -804,7 +522,7 @@ namespace X86ISA
                             if (timing)
                                 latency += missLatency2;
 
-                            if (p->fixupStackFault(vaddr))
+                            if (p->fixupFault(vaddr))
                                 pte = p->pTable->lookup(vaddr);
                         }
 
@@ -906,8 +624,8 @@ namespace X86ISA
     {
         bool delayedResponse;
 
-        return GpuTLB::translate(req, tc, nullptr, mode, delayedResponse, false,
-                                 latency);
+        return GpuTLB::translate(req, tc, nullptr, mode, delayedResponse,
+            false, latency);
     }
 
     void
@@ -1085,13 +803,13 @@ namespace X86ISA
         }
 
         /*
-         * We now know the TLB lookup outcome (if it's a hit or a miss), as well
-         * as the TLB access latency.
+         * We now know the TLB lookup outcome (if it's a hit or a miss), as
+         * well as the TLB access latency.
          *
          * We create and schedule a new TLBEvent which will help us take the
-         * appropriate actions (e.g., update TLB on a hit, send request to lower
-         * level TLB on a miss, or start a page walk if this was the last-level
-         * TLB)
+         * appropriate actions (e.g., update TLB on a hit, send request to
+         * lower level TLB on a miss, or start a page walk if this was the
+         * last-level TLB)
          */
         TLBEvent *tlb_event =
             new TLBEvent(this, virt_page_addr, lookup_outcome, pkt);
@@ -1105,15 +823,15 @@ namespace X86ISA
         assert(tlb_event);
 
         DPRINTF(GPUTLB, "schedule translationReturnEvent @ curTick %d\n",
-                curTick() + this->ticks(hitLatency));
+                curTick() + cyclesToTicks(Cycles(hitLatency)));
 
-        schedule(tlb_event, curTick() + this->ticks(hitLatency));
+        schedule(tlb_event, curTick() + cyclesToTicks(Cycles(hitLatency)));
     }
 
-    GpuTLB::TLBEvent::TLBEvent(GpuTLB* _tlb, Addr _addr, tlbOutcome tlb_outcome,
-                               PacketPtr _pkt)
-        : Event(CPU_Tick_Pri), tlb(_tlb), virtPageAddr(_addr),
-        outcome(tlb_outcome), pkt(_pkt)
+    GpuTLB::TLBEvent::TLBEvent(GpuTLB* _tlb, Addr _addr,
+        tlbOutcome tlb_outcome, PacketPtr _pkt)
+            : Event(CPU_Tick_Pri), tlb(_tlb), virtPageAddr(_addr),
+              outcome(tlb_outcome), pkt(_pkt)
     {
     }
 
@@ -1130,7 +848,8 @@ namespace X86ISA
         bool storeCheck = flags & (StoreCheck << FlagShift);
 
         // Do paging protection checks.
-        bool inUser = (m5Reg.cpl == 3 && !(flags & (CPL0FlagBit << FlagShift)));
+        bool inUser
+            = (m5Reg.cpl == 3 && !(flags & (CPL0FlagBit << FlagShift)));
         CR0 cr0 = tc->readMiscRegNoEffect(MISCREG_CR0);
 
         bool badWrite = (!tlb_entry->writable && (inUser || cr0.wp));
@@ -1156,10 +875,9 @@ namespace X86ISA
      * The latter calls handelHit with TLB miss as tlbOutcome.
      */
     void
-    GpuTLB::handleTranslationReturn(Addr virt_page_addr, tlbOutcome tlb_outcome,
-            PacketPtr pkt)
+    GpuTLB::handleTranslationReturn(Addr virt_page_addr,
+        tlbOutcome tlb_outcome, PacketPtr pkt)
     {
-
         assert(pkt);
         Addr vaddr = pkt->req->getVaddr();
 
@@ -1172,15 +890,18 @@ namespace X86ISA
         TlbEntry *local_entry, *new_entry;
 
         if (tlb_outcome == TLB_HIT) {
-            DPRINTF(GPUTLB, "Translation Done - TLB Hit for addr %#x\n", vaddr);
+            DPRINTF(GPUTLB, "Translation Done - TLB Hit for addr %#x\n",
+                vaddr);
             local_entry = sender_state->tlbEntry;
         } else {
             DPRINTF(GPUTLB, "Translation Done - TLB Miss for addr %#x\n",
                     vaddr);
 
-            // We are returning either from a page walk or from a hit at a lower
-            // TLB level. The senderState should be "carrying" a pointer to the
-            // correct TLBEntry.
+            /**
+             * We are returning either from a page walk or from a hit at a
+             * lower TLB level. The senderState should be "carrying" a pointer
+             * to the correct TLBEntry.
+             */
             new_entry = sender_state->tlbEntry;
             assert(new_entry);
             local_entry = new_entry;
@@ -1209,7 +930,7 @@ namespace X86ISA
         Addr paddr = local_entry->paddr | (vaddr & (page_size - 1));
         DPRINTF(GPUTLB, "Translated %#x -> %#x.\n", vaddr, paddr);
 
-        // Since this packet will be sent through the cpu side slave port,
+        // Since this packet will be sent through the cpu side port,
         // it must be converted to a response pkt if it is not one already
         if (pkt->isRequest()) {
             pkt->makeTimingResponse();
@@ -1306,7 +1027,8 @@ namespace X86ISA
                 TLBEvent *tlb_event = translationReturnEvent[virtPageAddr];
                 assert(tlb_event);
                 tlb_event->updateOutcome(PAGE_WALK);
-                schedule(tlb_event, curTick() + ticks(missLatency2));
+                schedule(tlb_event,
+                         curTick() + cyclesToTicks(Cycles(missLatency2)));
             }
         } else if (outcome == PAGE_WALK) {
             if (update_stats)
@@ -1327,7 +1049,7 @@ namespace X86ISA
     #endif
             const EmulationPageTable::Entry *pte = p->pTable->lookup(vaddr);
             if (!pte && sender_state->tlbMode != BaseTLB::Execute &&
-                    p->fixupStackFault(vaddr)) {
+                    p->fixupFault(vaddr)) {
                 pte = p->pTable->lookup(vaddr);
             }
 
@@ -1377,7 +1099,7 @@ namespace X86ISA
         return virtPageAddr;
     }
 
-    /*
+    /**
      * recvTiming receives a coalesced timing request from a TLBCoalescer
      * and it calls issueTLBLookup()
      * It only rejects the packet if we have exceeded the max
@@ -1427,9 +1149,11 @@ namespace X86ISA
             DPRINTF(GPUTLB, "Functional Translation Done - TLB miss for addr "
                     "%#x\n", vaddr);
 
-            // We are returning either from a page walk or from a hit at a lower
-            // TLB level. The senderState should be "carrying" a pointer to the
-            // correct TLBEntry.
+            /**
+             * We are returning either from a page walk or from a hit at a
+             * lower TLB level. The senderState should be "carrying" a pointer
+             * to the correct TLBEntry.
+             */
             new_entry = sender_state->tlbEntry;
             assert(new_entry);
             local_entry = new_entry;
@@ -1531,7 +1255,7 @@ namespace X86ISA
                 const EmulationPageTable::Entry *pte =
                         p->pTable->lookup(vaddr);
                 if (!pte && sender_state->tlbMode != BaseTLB::Execute &&
-                        p->fixupStackFault(vaddr)) {
+                        p->fixupFault(vaddr)) {
                     pte = p->pTable->lookup(vaddr);
                 }
 
@@ -1549,8 +1273,8 @@ namespace X86ISA
                 } else {
                     // If this was a prefetch, then do the normal thing if it
                     // was a successful translation.  Otherwise, send an empty
-                    // TLB entry back so that it can be figured out as empty and
-                    // handled accordingly.
+                    // TLB entry back so that it can be figured out as empty
+                    // and handled accordingly.
                     if (pte) {
                         DPRINTF(GPUTLB, "Mapping %#x to %#x\n", alignedVaddr,
                                 pte->paddr);
@@ -1600,7 +1324,7 @@ namespace X86ISA
     AddrRangeList
     GpuTLB::CpuSidePort::getAddrRanges() const
     {
-        // currently not checked by the master
+        // currently not checked by the requestor
         AddrRangeList ranges;
 
         return ranges;
@@ -1625,7 +1349,7 @@ namespace X86ISA
         assert(virt_page_addr == tlb_event->getTLBEventVaddr());
 
         tlb_event->updateOutcome(MISS_RETURN);
-        tlb->schedule(tlb_event, curTick()+tlb->ticks(1));
+        tlb->schedule(tlb_event, curTick()+tlb->clockPeriod());
 
         return true;
     }
@@ -1675,8 +1399,8 @@ namespace X86ISA
         tmp_access_info.sumDistance = 0;
         tmp_access_info.meanDistance = 0;
 
-        ret = TLBFootprint.insert(AccessPatternTable::value_type(virt_page_addr,
-                                  tmp_access_info));
+        ret = TLBFootprint.insert(
+            AccessPatternTable::value_type(virt_page_addr, tmp_access_info));
 
         bool first_page_access = ret.second;
 
@@ -1710,74 +1434,74 @@ namespace X86ISA
             page_stat_file = simout.create(name().c_str())->stream();
 
             // print header
-            *page_stat_file << "page,max_access_distance,mean_access_distance, "
-                            << "stddev_distance" << std::endl;
+            *page_stat_file
+                << "page,max_access_distance,mean_access_distance, "
+                << "stddev_distance" << std::endl;
         }
 
         // update avg. reuse distance footprint
-        AccessPatternTable::iterator iter, iter_begin, iter_end;
         unsigned int sum_avg_reuse_distance_per_page = 0;
 
         // iterate through all pages seen by this TLB
-        for (iter = TLBFootprint.begin(); iter != TLBFootprint.end(); iter++) {
-            sum_avg_reuse_distance_per_page += iter->second.totalReuseDistance /
-                                               iter->second.accessesPerPage;
+        for (auto &iter : TLBFootprint) {
+            sum_avg_reuse_distance_per_page += iter.second.totalReuseDistance /
+                                               iter.second.accessesPerPage;
 
             if (accessDistance) {
-                unsigned int tmp = iter->second.localTLBAccesses[0];
+                unsigned int tmp = iter.second.localTLBAccesses[0];
                 unsigned int prev = tmp;
 
-                for (int i = 0; i < iter->second.localTLBAccesses.size(); ++i) {
+                for (int i = 0; i < iter.second.localTLBAccesses.size(); ++i) {
                     if (i) {
                         tmp = prev + 1;
                     }
 
-                    prev = iter->second.localTLBAccesses[i];
+                    prev = iter.second.localTLBAccesses[i];
                     // update the localTLBAccesses value
                     // with the actual differece
-                    iter->second.localTLBAccesses[i] -= tmp;
+                    iter.second.localTLBAccesses[i] -= tmp;
                     // compute the sum of AccessDistance per page
                     // used later for mean
-                    iter->second.sumDistance +=
-                        iter->second.localTLBAccesses[i];
+                    iter.second.sumDistance +=
+                        iter.second.localTLBAccesses[i];
                 }
 
-                iter->second.meanDistance =
-                    iter->second.sumDistance / iter->second.accessesPerPage;
+                iter.second.meanDistance =
+                    iter.second.sumDistance / iter.second.accessesPerPage;
 
                 // compute std_dev and max  (we need a second round because we
                 // need to know the mean value
                 unsigned int max_distance = 0;
                 unsigned int stddev_distance = 0;
 
-                for (int i = 0; i < iter->second.localTLBAccesses.size(); ++i) {
+                for (int i = 0; i < iter.second.localTLBAccesses.size(); ++i) {
                     unsigned int tmp_access_distance =
-                        iter->second.localTLBAccesses[i];
+                        iter.second.localTLBAccesses[i];
 
                     if (tmp_access_distance > max_distance) {
                         max_distance = tmp_access_distance;
                     }
 
                     unsigned int diff =
-                        tmp_access_distance - iter->second.meanDistance;
+                        tmp_access_distance - iter.second.meanDistance;
                     stddev_distance += pow(diff, 2);
 
                 }
 
                 stddev_distance =
-                    sqrt(stddev_distance/iter->second.accessesPerPage);
+                    sqrt(stddev_distance/iter.second.accessesPerPage);
 
                 if (page_stat_file) {
-                    *page_stat_file << std::hex << iter->first << ",";
+                    *page_stat_file << std::hex << iter.first << ",";
                     *page_stat_file << std::dec << max_distance << ",";
-                    *page_stat_file << std::dec << iter->second.meanDistance
+                    *page_stat_file << std::dec << iter.second.meanDistance
                                     << ",";
                     *page_stat_file << std::dec << stddev_distance;
                     *page_stat_file << std::endl;
                 }
 
                 // erase the localTLBAccesses array
-                iter->second.localTLBAccesses.clear();
+                iter.second.localTLBAccesses.clear();
             }
         }
 

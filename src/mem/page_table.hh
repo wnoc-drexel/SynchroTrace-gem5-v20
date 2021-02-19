@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 /**
@@ -99,7 +97,7 @@ class EmulationPageTable : public Serializable
     // flag which marks the page table as shared among software threads
     bool shared;
 
-    virtual void initState(ThreadContext* tc) {};
+    virtual void initState() {};
 
     // for DPRINTF compatibility
     const std::string name() const { return _name; }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited
+ * Copyright (c) 2016-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathanael Premillieu
- *          Rekai Gonzalez
  */
 
 #ifndef __CPU__REG_CLASS_HH__
@@ -88,21 +84,21 @@ class RegId {
     friend struct std::hash<RegId>;
 
   public:
-    RegId() : regClass(IntRegClass), regIdx(0), elemIdx(-1) {}
+    RegId() : RegId(IntRegClass, 0) {}
+
     RegId(RegClass reg_class, RegIndex reg_idx)
-        : regClass(reg_class), regIdx(reg_idx), elemIdx(-1),
-          numPinnedWrites(0)
-    {
-        panic_if(regClass == VecElemClass,
-                "Creating vector physical index w/o element index");
-    }
+        : RegId(reg_class, reg_idx, ILLEGAL_ELEM_INDEX) {}
 
     explicit RegId(RegClass reg_class, RegIndex reg_idx, ElemIndex elem_idx)
         : regClass(reg_class), regIdx(reg_idx), elemIdx(elem_idx),
-          numPinnedWrites(0)
-    {
-        panic_if(regClass != VecElemClass,
-                "Creating non-vector physical index w/ element index");
+          numPinnedWrites(0) {
+        if (elemIdx == ILLEGAL_ELEM_INDEX) {
+            panic_if(regClass == VecElemClass,
+                    "Creating vector physical index w/o element index");
+        } else {
+            panic_if(regClass != VecElemClass,
+                    "Creating non-vector physical index w/ element index");
+        }
     }
 
     bool operator==(const RegId& that) const {
@@ -140,9 +136,7 @@ class RegId {
 
     inline bool isZeroReg() const
     {
-        return ((regClass == IntRegClass && regIdx == TheISA::ZeroReg) ||
-               (THE_ISA == ALPHA_ISA && regClass == FloatRegClass &&
-                regIdx == TheISA::ZeroReg));
+        return regClass == IntRegClass && regIdx == TheISA::ZeroReg;
     }
 
     /** @return true if it is an integer physical register. */

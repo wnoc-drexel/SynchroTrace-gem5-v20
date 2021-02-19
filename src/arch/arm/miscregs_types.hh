@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2018 ARM Limited
+ * Copyright (c) 2010-2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Giacomo Gabrielli
  */
 
 #ifndef __ARCH_ARM_MISCREGS_TYPES_HH__
@@ -55,7 +52,7 @@ namespace ArmISA
         Bitfield<27> q;
         Bitfield<26, 25> it1;
         Bitfield<24> j;
-        Bitfield<23, 22> res0_23_22;
+        Bitfield<22> pan;
         Bitfield<21> ss;        // AArch64
         Bitfield<20> il;        // AArch64
         Bitfield<19, 16> ge;
@@ -118,6 +115,7 @@ namespace ArmISA
     EndBitUnion(AA64ISAR1)
 
     BitUnion64(AA64MMFR0)
+        Bitfield<63, 60> ecv;
         Bitfield<47, 44> exs;
         Bitfield<43, 40> tgran4_2;
         Bitfield<39, 36> tgran64_2;
@@ -233,14 +231,25 @@ namespace ArmISA
     EndBitUnion(HSTR)
 
     BitUnion64(HCR)
+        Bitfield<47>     fien;
+        Bitfield<46>     fwb;
+        Bitfield<45>     nv2;
+        Bitfield<44>     at;
+        Bitfield<43>     nv1;
+        Bitfield<42>     nv;
+        Bitfield<41>     api;
+        Bitfield<40>     apk;
+        Bitfield<38>     miocnce;
+        Bitfield<37>     tea;
+        Bitfield<36>     terr;
+        Bitfield<35>     tlor;
         Bitfield<34>     e2h;   // AArch64
-        Bitfield<33>     id;    // AArch64
-        Bitfield<32>     cd;    // AArch64
+        Bitfield<33>     id;
+        Bitfield<32>     cd;
         Bitfield<31>     rw;    // AArch64
         Bitfield<30>     trvm;  // AArch64
         Bitfield<29>     hcd;   // AArch64
         Bitfield<28>     tdz;   // AArch64
-
         Bitfield<27>     tge;
         Bitfield<26>     tvm;
         Bitfield<25>     ttlb;
@@ -294,14 +303,22 @@ namespace ArmISA
     EndBitUnion(NSACR)
 
     BitUnion32(SCR)
+        Bitfield<21> fien;
+        Bitfield<20> nmea;
+        Bitfield<19> ease;
+        Bitfield<18> eel2; // AArch64 (Armv8.4-SecEL2)
+        Bitfield<17> api;
+        Bitfield<16> apk;
+        Bitfield<15> teer;
+        Bitfield<14> tlor;
         Bitfield<13> twe;
         Bitfield<12> twi;
-        Bitfield<11> st;  // AArch64
-        Bitfield<10> rw;  // AArch64
+        Bitfield<11> st;   // AArch64
+        Bitfield<10> rw;   // AArch64
         Bitfield<9> sif;
         Bitfield<8> hce;
         Bitfield<7> scd;
-        Bitfield<7> smd;  // AArch64
+        Bitfield<7> smd;   // AArch64
         Bitfield<6> nEt;
         Bitfield<5> aw;
         Bitfield<4> fw;
@@ -312,16 +329,21 @@ namespace ArmISA
     EndBitUnion(SCR)
 
     BitUnion32(SCTLR)
+        Bitfield<31>   enia;    // ARMv8.3 PAuth
+        Bitfield<30>   enib;    // ARMv8.3 PAuth
         Bitfield<30>   te;      // Thumb Exception Enable (AArch32 only)
         Bitfield<29>   afe;     // Access flag enable (AArch32 only)
         Bitfield<28>   tre;     // TEX remap enable (AArch32 only)
         Bitfield<27>   nmfi;    // Non-maskable FIQ support (ARMv7 only)
+        Bitfield<27>   enda;    // ARMv8.3 PAuth
         Bitfield<26>   uci;     // Enable EL0 access to DC CVAU, DC CIVAC,
                                 // DC CVAC and IC IVAU instructions
                                 // (AArch64 SCTLR_EL1 only)
         Bitfield<25>   ee;      // Exception Endianness
         Bitfield<24>   e0e;     // Endianness of explicit data accesses at EL0
                                 // (AArch64 SCTLR_EL1 only)
+        Bitfield<23>   span;    // Set Priviledge Access Never on taking
+                                // an exception
         Bitfield<23>   xp;      // Extended page table enable (dropped in ARMv7)
         Bitfield<22>   u;       // Alignment (dropped in ARMv7)
         Bitfield<21>   fi;      // Fast interrupts configuration enable
@@ -343,6 +365,7 @@ namespace ArmISA
         Bitfield<14>   dze;     // Enable EL0 access to DC ZVA
                                 // (AArch64 SCTLR_EL1 only)
         Bitfield<13>   v;       // Vectors bit (AArch32 only)
+        Bitfield<13>   endb;    // ARMv8.3 PAuth
         Bitfield<12>   i;       // Instruction cache enable
         Bitfield<11>   z;       // Branch prediction enable (ARMv7 only)
         Bitfield<10>   sw;      // SWP/SWPB enable (ARMv7 only)
@@ -502,9 +525,11 @@ namespace ArmISA
         Bitfield<21, 16> t1sz; // EL1
         Bitfield<22> a1; // EL1
         Bitfield<23> epd1; // EL1
+        Bitfield<24> hpd; // EL2/EL3, E2H=0
         Bitfield<25, 24> irgn1; // EL1
         Bitfield<27, 26> orgn1; // EL1
         Bitfield<29, 28> sh1; // EL1
+        Bitfield<29> tbid; // EL2
         Bitfield<31, 30> tg1; // EL1
         Bitfield<34, 32> ips; // EL1
         Bitfield<36> as; // EL1
@@ -514,6 +539,8 @@ namespace ArmISA
         Bitfield<40> hd;
         Bitfield<41> hpd0;
         Bitfield<42> hpd1;
+        Bitfield<51> tbid0; // EL1
+        Bitfield<52> tbid1; // EL1
     EndBitUnion(TCR)
 
     BitUnion32(HTCR)
@@ -623,7 +650,12 @@ namespace ArmISA
         Bitfield<39, 12> pa;
         Bitfield<11>     lpae;
         Bitfield<9>      ns;
+        Bitfield<9>      s;
         Bitfield<8, 7>   sh;
+        Bitfield<8>      ptw;
+        Bitfield<6, 1>   fst;
+        Bitfield<6>      fs5;
+        Bitfield<5, 1>   fs4_0;
         Bitfield<0>      f;
    EndBitUnion(PAR)
 
@@ -635,7 +667,11 @@ namespace ArmISA
 
    BitUnion32(CPTR)
         Bitfield<31> tcpac;
+        Bitfield<30> tam;
+        Bitfield<28> tta_e2h;
+        Bitfield<21, 20> fpen;
         Bitfield<20> tta;
+        Bitfield<17, 16> zen;
         Bitfield<13, 12> res1_13_12_el2;
         Bitfield<10> tfp;
         Bitfield<9> res1_9_el2;
@@ -648,6 +684,104 @@ namespace ArmISA
     BitUnion64(ZCR)
         Bitfield<3, 0> len;
     EndBitUnion(ZCR)
+
+   BitUnion32(OSL)
+        Bitfield<64, 4> res0;
+        Bitfield<3> oslm_3;
+        Bitfield<2> nTT;
+        Bitfield<1> oslk;
+        Bitfield<0> oslm_0;
+   EndBitUnion(OSL)
+
+   BitUnion64(DBGBCR)
+        Bitfield<63, 24> res0_2;
+        Bitfield<23, 20> bt;
+        Bitfield<19, 16> lbn;
+        Bitfield<15, 14> ssc;
+        Bitfield<13> hmc;
+        Bitfield<12, 9> res0_1;
+        Bitfield<8, 5> bas;
+        Bitfield<4, 3> res0_0;
+        Bitfield<2, 1> pmc;
+        Bitfield<0> e;
+   EndBitUnion(DBGBCR)
+
+    BitUnion64(DBGWCR)
+        Bitfield<63, 29> res0_2;
+        Bitfield<28, 24> mask;
+        Bitfield<23, 21> res0_1;
+        Bitfield<20> wt;
+        Bitfield<19, 16> lbn;
+        Bitfield<15, 14> ssc;
+        Bitfield<13> hmc;
+        Bitfield<12, 5> bas;
+        Bitfield<4, 3> lsv;
+        Bitfield<2, 1> pac;
+        Bitfield<0> e;
+   EndBitUnion(DBGWCR)
+
+   BitUnion32(DBGDS32)
+        Bitfield<31> tfo;
+        Bitfield<30> rxfull;
+        Bitfield<29> txfull;
+        Bitfield<28> res0_5;
+        Bitfield<27> rxo;
+        Bitfield<26> txu;
+        Bitfield<25, 24> res0_4;
+        Bitfield<23, 22> intdis;
+        Bitfield<21> tda;
+        Bitfield<20> res0_3;
+        Bitfield<19> sc2;
+        Bitfield<18> ns;
+        Bitfield<17> spniddis;
+        Bitfield<16> spiddis;
+        Bitfield<15> mdbgen;
+        Bitfield<14> hde;
+        Bitfield<13> res0_;
+        Bitfield<12> udccdis;
+        Bitfield<12> tdcc;
+        Bitfield<11, 7> res0_2;
+        Bitfield<6> err;
+        Bitfield<5, 2> moe;
+        Bitfield<1, 0> res0_1;
+   EndBitUnion(DBGDS32)
+
+   BitUnion32(DBGVCR)
+        Bitfield<31> nsf;
+        Bitfield<30> nsi;
+        Bitfield<29> res0_5;
+        Bitfield<28> nsd;
+        Bitfield<27> nsp;
+        Bitfield<26> nss;
+        Bitfield<25> nsu;
+        Bitfield<24, 16> res0_4;
+        Bitfield<15> mf;
+        Bitfield<14> mi;
+        Bitfield<13> res0_3;
+        Bitfield<12> md;
+        Bitfield<11> mp;
+        Bitfield<10> ms;
+        Bitfield<9,8> res0_2;
+        Bitfield<7> sf;
+        Bitfield<6> si;
+        Bitfield<5> res0_1;
+        Bitfield<4> sd;
+        Bitfield<3> sp;
+        Bitfield<2> ss;
+        Bitfield<1> su;
+        Bitfield<0> res0_0;
+   EndBitUnion(DBGVCR)
+
+   BitUnion32(DEVID)
+        Bitfield<31,28> cidmask;
+        Bitfield<27,24> auxregs;
+        Bitfield<23,20> doublelock;
+        Bitfield<19,16> virtextns;
+        Bitfield<15,12> vectorcatch;
+        Bitfield<11,8>  bpaddremask;
+        Bitfield<7,4>   wpaddrmask;
+        Bitfield<3,0>   pcsample;
+   EndBitUnion(DEVID)
 
 }
 

@@ -24,8 +24,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
 from __future__ import print_function
 
@@ -40,6 +38,7 @@ import multiprocessing.pool
 import os
 import re
 import subprocess
+import six
 import sys
 
 script_path = os.path.abspath(inspect.getfile(inspect.currentframe()))
@@ -57,7 +56,7 @@ json_rel_path = os.path.join(tests_rel_path, 'tests.json')
 
 
 def scons(*args):
-    args = ['scons'] + list(args)
+    args = ['scons', '--with-systemc-tests'] + list(args)
     subprocess.check_call(args)
 
 
@@ -111,8 +110,8 @@ class TestPhaseMeta(type):
 
         super(TestPhaseMeta, cls).__init__(name, bases, d)
 
+@six.add_metaclass(TestPhaseMeta)
 class TestPhaseBase(object):
-    __metaclass__ = TestPhaseMeta
     abstract = True
 
     def __init__(self, main_args, *args):
@@ -267,6 +266,8 @@ class LogChecker(DiffingChecker):
         r'^Global frequency set at \d* ticks per second\n',
         r'^info: Entering event queue @ \d*\.  Starting simulation\.\.\.\n',
         r'warn: Ignoring request to set stack size\.\n',
+        r'^warn: No dot file generated. Please install pydot ' +
+        r'to generate the dot file and pdf.\n',
         info_filt(804),
         in_file_filt,
     )

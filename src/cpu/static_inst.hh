@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited
+ * Copyright (c) 2017, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __CPU_STATIC_INST_HH__
@@ -66,11 +64,15 @@ class Packet;
 
 class ExecContext;
 
+namespace Loader
+{
 class SymbolTable;
+} // namespace Loader
 
-namespace Trace {
-    class InstRecord;
-}
+namespace Trace
+{
+class InstRecord;
+} // namespace Trace
 
 /**
  * Base, ISA-independent static instruction class.
@@ -200,6 +202,18 @@ class StaticInst : public RefCounted, public StaticInstFlags
     bool isFirstMicroop() const { return flags[IsFirstMicroop]; }
     //This flag doesn't do anything yet
     bool isMicroBranch() const { return flags[IsMicroBranch]; }
+    // hardware transactional memory
+    // HtmCmds must be identified as such in order
+    // to provide them with necessary memory ordering semantics.
+    bool isHtmStart() const { return flags[IsHtmStart]; }
+    bool isHtmStop() const { return flags[IsHtmStop]; }
+    bool isHtmCancel() const { return flags[IsHtmCancel]; }
+
+    bool
+    isHtmCmd() const
+    {
+        return isHtmStart() || isHtmStop() || isHtmCancel();
+    }
     //@}
 
     void setFirstMicroop() { flags[IsFirstMicroop] = true; }
@@ -253,7 +267,7 @@ class StaticInst : public RefCounted, public StaticInstFlags
      * Internal function to generate disassembly string.
      */
     virtual std::string
-    generateDisassembly(Addr pc, const SymbolTable *symtab) const = 0;
+    generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const = 0;
 
     /// Constructor.
     /// It's important to initialize everything here to a sane
@@ -324,7 +338,7 @@ class StaticInst : public RefCounted, public StaticInstFlags
      * should not be cached, this function should be overridden directly.
      */
     virtual const std::string &disassemble(Addr pc,
-        const SymbolTable *symtab = 0) const;
+        const Loader::SymbolTable *symtab=nullptr) const;
 
     /**
      * Print a separator separated list of this instruction's set flag

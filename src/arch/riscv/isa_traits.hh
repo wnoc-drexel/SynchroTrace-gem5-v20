@@ -37,34 +37,20 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
- *          Sven Karlsson
- *          Alec Roelke
  */
 
 #ifndef __ARCH_RISCV_ISA_TRAITS_HH__
 #define __ARCH_RISCV_ISA_TRAITS_HH__
 
-#include "arch/riscv/types.hh"
 #include "base/types.hh"
-#include "cpu/static_inst_fwd.hh"
-
-namespace LittleEndianGuest {}
 
 namespace RiscvISA
 {
 
-using namespace LittleEndianGuest;
+const ByteOrder GuestByteOrder = ByteOrder::little;
 
 const Addr PageShift = 12;
 const Addr PageBytes = ULL(1) << PageShift;
-
-// Memory accesses can be unaligned (at least for double-word memory accesses)
-const bool HasUnalignedMemAcc = true;
-
-const bool CurThreadInfoImplemented = false;
-const int CurThreadInfoReg = -1;
 
 }
 
